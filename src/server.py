@@ -1,10 +1,19 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import sys
 import os
+import re
+import traceback
+import io
+import json
+import shutil
+import tempfile
 from datetime import datetime, timedelta
+from google import genai
+from fpdf import FPDF
 
 # Ensure src module is reachable
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,8 +22,6 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 from src.database import engine, get_db
 from src.models import Draft, Base
-from fastapi.responses import StreamingResponse
-import json
 
 # Create DB tables
 Base.metadata.create_all(bind=engine)
@@ -29,6 +36,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize Gemini GenAI client for document scanning (OCR)
+api_key = os.environ.get("GOOGLE_API_KEY")
+gemini_client = None
+if api_key:
+    try:
+        gemini_client = genai.Client(api_key=api_key)
+        print("Gemini GenAI client initialized successfully.")
+    except Exception as e:
+        print(f"Warning: Could not initialize Gemini GenAI client: {e}")
+
+# RAG chain'i bir kere başlat ve bellekte tut (her istekte yeniden yükleme!)
+_rag_chain = None
+
+def get_cached_rag_chain():
+    global _rag_chain
+    if _rag_chain is None:
+        print("Initializing RAG chain (first time only)...")
+        _rag_chain = get_rag_chain()
+        print("RAG chain initialized successfully.")
+    return _rag_chain
 
 # --- Seed Data Function ---
 def seed_db(db: Session):
@@ -88,6 +116,8 @@ def seed_db(db: Session):
 def startup_event():
     db = next(get_db())
     seed_db(db)
+    # RAG chain'i sunucu başlarken hazırla (ilk isteği bekletmemek için)
+    get_cached_rag_chain()
 
 # --- Endpoints ---
 
@@ -101,7 +131,7 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
-    rag_chain = get_rag_chain()
+    rag_chain = get_cached_rag_chain()
     if not rag_chain:
         raise HTTPException(status_code=500, detail="RAG zinciri başlatılamadı. Lütfen veritabanının hazır olduğundan emin olun.")
 
@@ -132,7 +162,243 @@ async def chat_endpoint(req: ChatRequest):
             "sources": source_docs
         }
     except Exception as e:
+        error_msg = str(e)
+        print(f"[CHAT ERROR] {error_msg}")
+        traceback.print_exc()
+        
+        # Gemini API rate limit hatası
+        if "429" in error_msg or "quota" in error_msg.lower() or "rate" in error_msg.lower() or "Resource has been exhausted" in error_msg:
+            return {
+                "answer": "⏳ Yapay zeka servisi şu an yoğun. Lütfen birkaç saniye bekleyip tekrar deneyin.",
+                "sources": []
+            }
+        
+        # Diğer hatalar
+        return {
+            "answer": f"Bir hata oluştu, lütfen tekrar deneyin. (Detay: {error_msg[:200]})",
+            "sources": []
+        }
+
+# --- DOCUMENT SCAN & PDF GENERATION ENDPOINTS ---
+
+@app.post("/api/scan-document")
+async def scan_document(file: UploadFile = File(...)):
+    if not gemini_client:
+        raise HTTPException(status_code=500, detail="Gemini API istemcisi başlatılamadı. Lütfen GOOGLE_API_KEY ortam değişkenini kontrol edin.")
+        
+    try:
+        # Save uploaded file to a temporary file
+        suffix = os.path.splitext(file.filename)[1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            shutil.copyfileobj(file.file, temp_file)
+            temp_path = temp_file.name
+            
+        print(f"Uploading file for scanning: {file.filename} -> {temp_path}")
+        
+        try:
+            # Upload to Gemini (supports images and PDF)
+            file_obj = gemini_client.files.upload(file=temp_path)
+            
+            prompt = """
+            Sen İskenderun Teknik Üniversitesi (İSTE) için çalışan yardımcı bir idari yapay zekasın.
+            Bu yüklenen sağlık raporunu veya mazeret belgesini dikkatlice incele.
+            Belgedeki şu bilgileri kesin olarak tespit et ve bir JSON formatında döndür:
+            1. Öğrencinin Adı Soyadı (fullname) - Eğer belgede ad soyad yoksa boş bırak.
+            2. Mazeret Tarih Aralığı (date_range) - Örneğin '15.05.2026 - 17.05.2026' veya '15 Mayıs 2026 - 3 Gün'.
+            3. Mazeret Gerekçesi / Tanı (reason) - Örneğin 'Gastroenterit', 'Akut Üst Solunum Yolu Enfeksiyonu' vb.
+            4. Belgeyi Veren Kurum/Hastane (institution) - Örneğin 'İskenderun Devlet Hastanesi'.
+
+            Ayrıca, bu bilgilere dayanarak İSTE Bölüm Başkanlığına sunulmak üzere resmi ve son derece profesyonel bir 'Mazeret Sınavı Dilekçesi' metni (petition_text) hazırla.
+            Dilekçe metni şu şablona benzer resmi bir dille yazılmalıdır:
+            'Fakülteniz/Yüksekokulunuz ilgili bölümü öğrencisiyim. [Tarih Aralığı] tarihleri arasında [Kurum Adı] tarafından verilen ekteki raporda belirtilen mazeretim (Tanı: [Tanı]) nedeniyle [Ders Kodu] kodlu ve [Ders Adı] isimli dersin yarıyıl içi (vize) sınavına katılamadım. Ekli mazeret belgemin kabul edilerek ilgili ders/dersler için mazeret sınav hakkı tanınması hususunda gereğini saygılarımla arz ederim.'
+
+            DÖNDÜRÜLECEK JSON FORMATI:
+            {
+              "fullname": "Tespit edilen öğrenci adı soyadı",
+              "date_range": "Tespit edilen tarih aralığı",
+              "reason": "Tespit edilen tanı/gerekçe",
+              "institution": "Tespit edilen kurum",
+              "petition_title": "Mazeret Sınavı Başvuru Dilekçesi",
+              "petition_text": "Hazırladığın profesyonel dilekçe gövde metni"
+            }
+
+            UYARI: Çıktıda JSON bloğu dışında HİÇBİR açıklama veya markdown kodu (örneğin ```json ... ```) OLMAMALIDIR. Sadece saf JSON string döndür.
+            """
+            
+            print("File uploaded. Generating content from Gemini...")
+            response = gemini_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[file_obj, prompt]
+            )
+            
+            response_text = response.text
+            print(f"Gemini response: {response_text}")
+            
+            # Clean and parse JSON
+            extracted_data = {}
+            match = re.search(r"\{.*\}", response_text, re.DOTALL)
+            if match:
+                try:
+                    extracted_data = json.loads(match.group(0))
+                except Exception as json_err:
+                    print(f"Failed to parse JSON using regex: {json_err}")
+            
+            if not extracted_data:
+                # Fallback if parsing completely fails
+                extracted_data = {
+                    "fullname": "",
+                    "date_range": "",
+                    "reason": "Mazeret Raporu",
+                    "institution": "Sağlık Kurumu",
+                    "petition_title": "Mazeret Sınavı Başvuru Dilekçesi",
+                    "petition_text": response_text
+                }
+                
+            return extracted_data
+            
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Belge tarama sırasında hata oluştu: {str(e)}")
+
+class SaveDraftRequest(BaseModel):
+    title: str
+    fullname: str
+    date_range: str
+    reason: str
+    institution: str
+
+@app.post("/api/save-draft")
+async def save_draft(req: SaveDraftRequest, db: Session = Depends(get_db)):
+    try:
+        new_draft = Draft(
+            title=req.title,
+            description=f"{req.fullname} adlı öğrencinin {req.date_range} tarihlerindeki mazeret belgesine dayalı dilekçesi ({req.reason} - {req.institution}).",
+            status="ready",
+            progress=100,
+            updated_at=datetime.utcnow()
+        )
+        db.add(new_draft)
+        db.commit()
+        db.refresh(new_draft)
+        return {"status": "success", "draft_id": new_draft.id}
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class GeneratePDFRequest(BaseModel):
+    title: str
+    fullname: str
+    student_id: str
+    phone: str
+    department: str
+    course_code: str
+    course_name: str
+    reason: str
+    date_range: str
+    institution: str
+    petition_text: str
+
+class PetitionPDF(FPDF):
+    def header(self):
+        pass
+
+@app.post("/api/generate-pdf")
+async def generate_pdf(req: GeneratePDFRequest):
+    try:
+        pdf = PetitionPDF()
+        pdf.add_page()
+        
+        # Load Arial font supporting Turkish
+        font_path = r"C:\Windows\Fonts\arial.ttf"
+        pdf.add_font("ArialTR", "", font_path)
+        pdf.add_font("ArialTR", "B", font_path)
+        
+        pdf.set_font("ArialTR", "B", 14)
+        pdf.cell(0, 10, "İSKENDERUN TEKNİK ÜNİVERSİTESİ", new_x="LMARGIN", new_y="NEXT", align="C")
+        
+        pdf.set_font("ArialTR", "B", 12)
+        pdf.cell(0, 8, f"{req.department.upper()} DEKANLIĞINA / MÜDÜRLÜĞÜNE", new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.cell(0, 6, "İskenderun", new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.ln(10)
+        
+        # Date (Right aligned)
+        pdf.set_font("ArialTR", "", 10)
+        current_date = datetime.now().strftime("%d/%m/%Y")
+        pdf.cell(0, 6, f"Tarih: {current_date}", new_x="LMARGIN", new_y="NEXT", align="R")
+        pdf.ln(5)
+        
+        # Student Info block (Left aligned)
+        pdf.set_font("ArialTR", "B", 10)
+        pdf.cell(40, 6, "Öğrenci Adı Soyadı : ", align="L")
+        pdf.set_font("ArialTR", "", 10)
+        pdf.cell(0, 6, req.fullname, new_x="LMARGIN", new_y="NEXT", align="L")
+        
+        pdf.set_font("ArialTR", "B", 10)
+        pdf.cell(40, 6, "Öğrenci Numarası   : ", align="L")
+        pdf.set_font("ArialTR", "", 10)
+        pdf.cell(0, 6, req.student_id, new_x="LMARGIN", new_y="NEXT", align="L")
+        
+        pdf.set_font("ArialTR", "B", 10)
+        pdf.cell(40, 6, "Bölümü             : ", align="L")
+        pdf.set_font("ArialTR", "", 10)
+        pdf.cell(0, 6, req.department, new_x="LMARGIN", new_y="NEXT", align="L")
+        
+        pdf.set_font("ArialTR", "B", 10)
+        pdf.cell(40, 6, "Telefon Numarası   : ", align="L")
+        pdf.set_font("ArialTR", "", 10)
+        pdf.cell(0, 6, req.phone, new_x="LMARGIN", new_y="NEXT", align="L")
+        pdf.ln(10)
+        
+        # Subject
+        pdf.set_font("ArialTR", "B", 11)
+        pdf.cell(20, 6, "KONU : ", align="L")
+        pdf.set_font("ArialTR", "", 11)
+        pdf.cell(0, 6, f"Mazeret Sınavı Talebi ({req.course_code} - {req.course_name})", new_x="LMARGIN", new_y="NEXT", align="L")
+        pdf.ln(8)
+        
+        # Body paragraph
+        pdf.set_font("ArialTR", "", 11)
+        
+        body = req.petition_text
+        if not body:
+            body = f"Fakülteniz/Yüksekokulunuz {req.department} Bölümü {req.student_id} numaralı öğrencisiyim. " \
+                   f"Öğrenim görmekte olduğum {req.course_code} kodlu ve '{req.course_name}' isimli dersin yarıyıl içi (vize) sınavına, " \
+                   f"{req.date_range} tarihlerini kapsayan ve {req.institution} tarafından verilen ekteki mazeret/sağlık raporunda belirtilen mazeretim nedeniyle katılamadım. " \
+                   f"Mevzuat gereğince ilgili ders/dersler için mazeret sınav hakkı tanınması hususunda gereğini ve bilgilerinizi saygılarımla arz ederim."
+                   
+        pdf.multi_cell(0, 7, body, new_x="LMARGIN", new_y="NEXT", align="J")
+        pdf.ln(15)
+        
+        # Signature block (Right aligned)
+        pdf.set_font("ArialTR", "B", 11)
+        pdf.cell(110) # spacing to push right
+        pdf.cell(0, 6, "İmza", new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.cell(110)
+        pdf.set_font("ArialTR", "", 11)
+        pdf.cell(0, 6, req.fullname, new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.ln(15)
+        
+        # Enclosures (Left aligned)
+        pdf.set_font("ArialTR", "B", 10)
+        pdf.cell(0, 6, "EKLER:", new_x="LMARGIN", new_y="NEXT", align="L")
+        pdf.set_font("ArialTR", "", 10)
+        pdf.cell(0, 6, f"1. Mazeret Belgesi / Rapor Fotokopisi ({req.institution} onaylı, {req.date_range} tarihli)", new_x="LMARGIN", new_y="NEXT", align="L")
+        
+        pdf_bytes = pdf.output()
+        
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes), 
+            media_type="application/pdf", 
+            headers={"Content-Disposition": f"attachment; filename=dilekce_{req.student_id}.pdf"}
+        )
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"PDF oluşturma hatası: {str(e)}")
+
+# --- End of Scan and PDF endpoints ---
 
 @app.get("/api/stats")
 async def get_stats(db: Session = Depends(get_db)):

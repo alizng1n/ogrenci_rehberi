@@ -1,0 +1,46 @@
+İşte PDF belgesindeki tüm metin ve tablo verilerinin Markdown formatında çıkarılmış hali:
+
+**İSTE Bilgisayar Mühendisliği Bölümü**
+**2025-2026 Bahar Dönemi**
+**Final Sınavı Programı**
+
+### Sınav Programı
+
+| Günler     | Oturum Saati | Sınıf    | Ders Kodu  | Ders Adı                                    | Derslikler             |
+| :--------- | :----------- | :------- | :--------- | :------------------------------------------ | :--------------------- |
+| Pazartesi  | 09.00-10.00  | 2. Sınıf | ISG2-2402  | İŞ SAĞLIĞI VE GÜVENLİĞİ                     | A203, A207, A208       |
+| Pazartesi  | 10.00-11.00  | 4. Sınıf | IME2-4802  | İŞLETMEDE MESLEKİ EĞİTİM                    | ÖĞRETİM ÜYESİ ODASI    |
+| Pazartesi  | 12.45-13.15  | 1. Sınıf | AITT2-1202 | ATATÜRK İLKELERİ VE İNKILAP TARİHİ II       | A203, A207, A208       |
+| Pazartesi  | 13.30-15.00  | 3. Sınıf | BLM2-3622  | WEB TABANLI PROGRAMLAMA                     | A203, A207, A208       |
+| Pazartesi  | 15.00-16.30  | 2. Sınıf | BLM2-2434  | BM İÇİN ANALİZ YAZILIMLARI VE UYG.          | A203, A207, A208       |
+| Pazartesi  | 16.30-18.00  | 4. Sınıf | BLM2-4822  | KABLOSUZ SENSÖR AĞLAR                       | A203, A207, A208       |
+| Salı       | 10.30-12.00  | 1. Sınıf | MTM2-1206  | MATEMATİK II                                | A203, A207, A208       |
+| Salı       | 12.45-13.15  | 1. Sınıf | YOG2-1202  | YENİLİKÇİLİK VE GİRİŞİMCİLİK                | A203, A207, A208       |
+| Salı       | 13.30-15.00  | 3. Sınıf | BLM2-3644  | NÜMERİK YÖNTEMLER                           | A203, A207, A208       |
+| Salı       | 15.00-16.30  | 2. Sınıf | BLM2-2414  | İŞLETİM SİSTEMLERİ                          | A203, A207, A208       |
+| Salı       | 16.30-18.00  | 2. Sınıf | BLM2-2424  | SAYISAL TASARIM LABORATUVARI                | A203, A207, A208       |
+| Salı       | 16.30-18.00  | 4. Sınıf | BLM2-4828  | İNSAN-BİLGİSAYAR ETKİLEŞİMİ                 | A203, A207, A208       |
+| Çarşamba   | 10.00-11.00  | 3. Sınıf | BLM2-3624  | BİLGİSAYAR AĞLARI                           | A203, A207, A208       |
+| Çarşamba   | 12.45-13.15  | 1. Sınıf | ING2-1202  | İNGİLİZCE II                                | A203, A207, A208       |
+| Çarşamba   | 12.45-13.15  | 1. Sınıf | TUR2-1202  | TÜRK DİLİ II                                | A203, A207, A208       |
+| Çarşamba   | 13.30-15.00  | 4. Sınıf | BLM2-4810  | DOĞAL DİL İŞLEME                            | A203, A207, A208       |
+| Çarşamba   | 15.00-16.30  | 1. Sınıf | BLM2-1218  | ALGORİTMALAR VE PROGRAMLAMA II              | A203, A207, A208       |
+| Perşembe   | 10.00-11.30  | 3. Sınıf | BLM2-3616  | MİKROİŞLEMCİLER                             | A203, A207, A208       |
+| Perşembe   | 12.45-13.15  | 2. Sınıf | BLM2-2410  | YAZILIM MÜHENDİSLİĞİNE GİRİŞ                | A203, A207, A208       |
+| Perşembe   | 13.30-15.00  | 4. Sınıf | BLM2-4802  | YAPAY ZEKA UYGULAMALARI                     | A203                   |
+| Perşembe   | 15.00-16.30  | 3. Sınıf | KRP2-3602  | KARİYER PLANLAMA                            | A203, A207, A208       |
+| Perşembe   | 16.30-18.00  | 2. Sınıf | FZK2-1202  | FİZİK II                                    | A203, A207, A208       |
+| Cuma       | 10.30-12.00  | 1. Sınıf | FLB2-1202  | FİZİK LABORATUARI II                        | A203, A207, A208       |
+| Cuma       | 13.30-15.00  | 2. Sınıf | BLM2-2436  | MANTIK DEVRELERİ TASARIMI                   | A203, A207, A208       |
+| Cuma       | 15.00-16.30  | 4. Sınıf | BLM2-4806  | MÜHENDİSLİKTE BİLGİSAYAR UYG. II            | A203, A207, A208       |
+| Cuma       | 16.30-18.00  | 4. Sınıf | BLM2-4816  | BM'DE ÖZEL KONULAR II                       | A203, A207, A208       |
+| 01.06.26   | 10.00-11.00  | 2. Sınıf | BLM2-2402  | OLASILIK VE İSTATİSTİK                      | A203, A207, A208       |
+| 01.06.26   | 10.00-11.00  | 3. Sınıf | BLM2-3646  | İNGİLİZCE YAZIŞMA                           | A203, A207, A208       |
+| 01.06.26   | 11.00-12.30  | 4. Sınıf | BLM2-4844  | BİLİŞİM HUKUKU                              | A203                   |
+| 01.06.26   | 11.00-12.30  | 1. Sınıf | LNC2-2019  | LİNEER CEBİR                                | A203, A207, A208       |
+| 01.06.26   | 13.30-15.00  | 2. Sınıf | BLM2-2416  | DEVRE ELEMANLARI                            | A203, A207, A208       |
+| 01.06.26   | 15.00-16.30  | 4. Sınıf | BLM2-4850  | MAKİNE ÖĞRENMESİ YAKLAŞIMLARI               | A203                   |
+| 01.06.26   | 16.30-18.00  | 3. Sınıf | BLM2-3640  | VERİ BİLİMİ VE BÜYÜK VERİ ANALİZİNE GİRİŞ   | A203                   |
+| 02.06.26   | 10.00-11.00  | 4. Sınıf | BLM2-4804  | SAYISAL GÖRÜNTÜ İŞLEME                      | A203, A207, A208       |
+| 03.06.26   | 10.00-11.00  | 4. Sınıf | BLM2-4890  | BİTİRME PROJESİ II                          | ÖĞRETİM ÜYESİ ODASI    |
+| 03.06.26   | 11.00-12.30  | 3. Sınıf | BLM2-3600  | STAJ                                        | ÖĞRETİM ÜYESİ ODASI    |
