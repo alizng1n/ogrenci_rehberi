@@ -21,23 +21,30 @@ function App() {
   const [sources, setSources] = useState([]);
   const messagesEndRef = useRef(null);
 
-  // Scan & PDF states
+  // Dilekçe Modal State
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanFile, setScanFile] = useState(null);
-  const [step, setStep] = useState(1); // 1: Upload, 2: Preview & Edit
 
-  // Petition Form States
-  const [fullname, setFullname] = useState('');
+  // Petition Form States (with premium default values)
+  const [fullname, setFullname] = useState('Ali Zengin');
   const [studentId, setStudentId] = useState('220301045');
   const [phone, setPhone] = useState('0555 123 45 67');
   const [department, setDepartment] = useState('Bilgisayar Mühendisliği');
   const [courseCode, setCourseCode] = useState('COM-202');
   const [courseName, setCourseName] = useState('Veritabanı Yönetim Sistemleri');
-  const [reason, setReason] = useState('');
-  const [dateRange, setDateRange] = useState('');
-  const [institution, setInstitution] = useState('');
+  const [reason, setReason] = useState('Sağlık Raporu / Hastalık Mazereti');
+  const [dateRange, setDateRange] = useState('18.05.2026 - 20.05.2026');
+  const [institution, setInstitution] = useState('İskenderun Devlet Hastanesi');
   const [petitionText, setPetitionText] = useState('');
+  const [isEdited, setIsEdited] = useState(false);
+
+  // Dynamic automatic petition compiler
+  useEffect(() => {
+    if (!isEdited) {
+      setPetitionText(
+        `Fakülteniz/Yüksekokulunuz ${department} Bölümü ${studentId} numaralı öğrencisiyim. Öğrenim görmekte olduğum ${courseCode} kodlu ve '${courseName}' isimli dersin yarıyıl içi (vize) sınavına, ${dateRange} tarihlerini kapsayan ve ${institution} tarafından verilen ekteki mazeret belgemde (Tanı: ${reason}) belirtilen mazeretim nedeniyle katılamadım. Mevzuat gereğince ilgili ders için mazeret sınav hakkı tanınması hususunda gereğini ve bilgilerinizi saygılarımla arz ederim.`
+      );
+    }
+  }, [fullname, studentId, phone, department, courseCode, courseName, reason, dateRange, institution, isEdited]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -118,41 +125,6 @@ function App() {
     }
   };
 
-  // Document Scan handlers
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setScanFile(e.target.files[0]);
-    }
-  };
-
-  const handleScanDocument = async () => {
-    if (!scanFile) return;
-    setIsScanning(true);
-    
-    const formData = new FormData();
-    formData.append('file', scanFile);
-    
-    try {
-      const response = await axios.post('http://localhost:8000/api/scan-document', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      
-      const data = response.data;
-      setFullname(data.fullname || '');
-      setDateRange(data.date_range || '');
-      setReason(data.reason || '');
-      setInstitution(data.institution || '');
-      setPetitionText(data.petition_text || '');
-      
-      setStep(2);
-    } catch (err) {
-      console.error("Scan error", err);
-      alert("Belge taranırken bir hata oluştu. Lütfen geçerli bir görsel veya PDF dosyası seçtiğinizden emin olun.");
-    } finally {
-      setIsScanning(false);
-    }
-  };
-
   const handleSaveAndDownloadPDF = async () => {
     // 1. Save draft to database
     try {
@@ -201,8 +173,7 @@ function App() {
       
       // Reset state and close modal
       setIsScanModalOpen(false);
-      setScanFile(null);
-      setStep(1);
+      setIsEdited(false);
     } catch (err) {
       console.error("PDF generation error", err);
       alert("PDF oluşturulurken bir hata oluştu. Lütfen tüm alanları doğru doldurduğunuzdan emin olun.");
@@ -264,7 +235,7 @@ function App() {
                 </div>
                 <button className="new-chat-btn" style={{ background: 'linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)', margin: 0, boxShadow: '0 4px 12px rgba(236, 72, 153, 0.3)' }} onClick={() => setIsScanModalOpen(true)}>
                   <Sparkles size={18} />
-                  Belge Tara ve Dilekçe Üret
+                  Resmi Dilekçe Oluştur
                 </button>
               </div>
 
@@ -298,8 +269,8 @@ function App() {
                     
                     {idx === 0 ? (
                       <div className="card-actions">
-                        <button className="btn-primary" onClick={(e) => { e.stopPropagation(); alert("Dilekçeniz PDF olarak indirilmeye hazır! Otomatik dilekçe üretim aracını deneyin."); }}>PDF İndir</button>
-                        <button className="btn-secondary" onClick={(e) => { e.stopPropagation(); handleStartChat(`${draft.title} düzenlemek istiyorum.`); }}>Taslağı Düzenle</button>
+                        <button className="btn-primary" onClick={(e) => { e.stopPropagation(); setIsScanModalOpen(true); }}>Dilekçeyi Düzenle ve PDF İndir</button>
+                        <button className="btn-secondary" onClick={(e) => { e.stopPropagation(); handleStartChat(`${draft.title} düzenlemek istiyorum.`); }}>Asistanla Düzenle</button>
                       </div>
                     ) : (
                       <div className="progress-bar-container">
@@ -385,7 +356,6 @@ function App() {
                     <div className="message-content">
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
-
                   </div>
                 </div>
               ))}
@@ -419,195 +389,158 @@ function App() {
         )}
       </main>
 
-      {/* Futuristic Document Scan & Auto-dilekçe Modal */}
+      {/* Futuristic Auto-dilekçe Modal */}
       {isScanModalOpen && (
         <div className="scan-modal-overlay">
           <div className="scan-modal-card">
             <div className="scan-modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div className="glow-icon-container">
-                  <Camera size={18} />
+                  <FileText size={18} />
                 </div>
                 <div>
-                  <h3>Akıllı Belge Tarayıcı & Dilekçe Üretici</h3>
-                  <p className="scan-modal-subtitle">Sağlık raporunuzu tarayarak saniyeler içinde resmi mazeret dilekçesi hazırlayın.</p>
+                  <h3>Resmi Dilekçe Oluşturucu</h3>
+                  <p className="scan-modal-subtitle">Bilgilerinizi doldurarak İSTE standartlarına uygun resmi A4 dilekçenizi saniyeler içinde hazırlayın.</p>
                 </div>
               </div>
-              <button className="close-modal-btn" onClick={() => { setIsScanModalOpen(false); setScanFile(null); setStep(1); }}>
+              <button className="close-modal-btn" onClick={() => { setIsScanModalOpen(false); setIsEdited(false); }}>
                 <X size={18} />
               </button>
             </div>
 
             <div className="scan-modal-body">
-              {step === 1 ? (
-                /* Step 1: File Upload Zone */
-                <div className="upload-container">
-                  {isScanning ? (
-                    <div className="scanning-loader">
-                      <div className="loader-pulse">
-                        <Sparkles size={48} className="spinner-icon" />
-                      </div>
-                      <h4>Yapay Zeka Belgeyi Analiz Ediyor...</h4>
-                      <p>Mazeret tarihleri, tanılar ve rapor veren kuruluşlar ayıklanıyor.</p>
+              <div className="form-preview-grid">
+                {/* Left Column: Form Fields */}
+                <div className="form-column">
+                  <div className="section-title">
+                    <span>1</span> Öğrenci ve Bölüm Bilgileri
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Öğrenci Adı Soyadı</label>
+                      <input type="text" value={fullname} onChange={(e) => setFullname(e.target.value)} />
                     </div>
-                  ) : (
-                    <>
-                      <div className="drag-drop-zone">
-                        <Upload size={48} className="upload-arrow" />
-                        <h4>Rapor Dosyasını Sürükleyin veya Seçin</h4>
-                        <p>Desteklenen formatlar: PNG, JPG, JPEG, PDF</p>
-                        <input type="file" onChange={handleFileChange} accept=".png,.jpg,.jpeg,.pdf" id="scan-file-input" style={{ display: 'none' }} />
-                        <label htmlFor="scan-file-input" className="select-file-btn">
-                          Dosya Seç
-                        </label>
-                      </div>
-                      
-                      {scanFile && (
-                        <div className="selected-file-card">
-                          <FileCheck size={20} color="var(--accent-blue)" />
-                          <div style={{ flexGrow: 1, textAlign: 'left' }}>
-                            <div className="file-name">{scanFile.name}</div>
-                            <div className="file-size">{(scanFile.size / 1024).toFixed(1)} KB</div>
-                          </div>
-                          <button className="remove-file-btn" onClick={() => setScanFile(null)}>
-                            <X size={16} />
-                          </button>
-                        </div>
+                    <div className="form-group">
+                      <label>Öğrenci Numarası</label>
+                      <input type="text" value={studentId} onChange={(e) => setStudentId(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Bölüm / Program</label>
+                      <input type="text" value={department} onChange={(e) => setDepartment(e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label>Telefon Numarası</label>
+                      <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="section-title" style={{ marginTop: '16px' }}>
+                    <span>2</span> Ders ve Sınav Bilgileri
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Ders Kodu</label>
+                      <input type="text" value={courseCode} onChange={(e) => setCourseCode(e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label>Ders Adı</label>
+                      <input type="text" value={courseName} onChange={(e) => setCourseName(e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="section-title" style={{ marginTop: '16px' }}>
+                    <span>3</span> Mazeret ve Rapor Bilgileri
+                  </div>
+                  <div className="form-group">
+                    <label>Belgeyi Veren Kurum (Hastane vb.)</label>
+                    <input type="text" value={institution} onChange={(e) => setInstitution(e.target.value)} />
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Mazeret Gerekçesi (Tanı)</label>
+                      <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label>Mazeret Tarih Aralığı</label>
+                      <input type="text" value={dateRange} onChange={(e) => setDateRange(e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="section-title" style={{ marginTop: '16px' }}>
+                    <span>4</span> Dilekçe Metni Düzenle
+                  </div>
+                  <div className="form-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ margin: 0 }}>Dilekçe İçeriği</label>
+                      {isEdited && (
+                        <button 
+                          style={{ background: 'transparent', border: 'none', color: 'var(--accent-blue)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          onClick={() => setIsEdited(false)}
+                        >
+                          <Sparkles size={11} /> Yazıyı Şablona Sıfırla
+                        </button>
                       )}
-
-                      <button 
-                        className="start-scan-btn" 
-                        disabled={!scanFile} 
-                        onClick={handleScanDocument}
-                      >
-                        <Sparkles size={16} /> Belgeyi Analiz Et ve Dilekçe Doldur
-                      </button>
-                    </>
-                  )}
-                </div>
-              ) : (
-                /* Step 2: Form editing and paper mockup preview */
-                <div className="form-preview-grid">
-                  {/* Left Column: Form Fields */}
-                  <div className="form-column">
-                    <div className="section-title">
-                      <span>1</span> Öğrenci ve Bölüm Bilgileri
                     </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label>Öğrenci Adı Soyadı</label>
-                        <input type="text" value={fullname} onChange={(e) => setFullname(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label>Öğrenci Numarası</label>
-                        <input type="text" value={studentId} onChange={(e) => setStudentId(e.target.value)} />
-                      </div>
-                    </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label>Bölüm / Program</label>
-                        <input type="text" value={department} onChange={(e) => setDepartment(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label>Telefon Numarası</label>
-                        <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} />
-                      </div>
-                    </div>
-
-                    <div className="section-title" style={{ marginTop: '16px' }}>
-                      <span>2</span> Ders ve Sınav Bilgileri
-                    </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label>Ders Kodu</label>
-                        <input type="text" value={courseCode} onChange={(e) => setCourseCode(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label>Ders Adı</label>
-                        <input type="text" value={courseName} onChange={(e) => setCourseName(e.target.value)} />
-                      </div>
-                    </div>
-
-                    <div className="section-title" style={{ marginTop: '16px' }}>
-                      <span>3</span> Rapordan Çıkarılan Bilgiler
-                    </div>
-                    <div className="form-group">
-                      <label>Belgeyi Veren Sağlık Kuruluşu</label>
-                      <input type="text" value={institution} onChange={(e) => setInstitution(e.target.value)} />
-                    </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label>Tanı / Gerekçe</label>
-                        <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label>Mazeret Tarih Aralığı</label>
-                        <input type="text" value={dateRange} onChange={(e) => setDateRange(e.target.value)} />
-                      </div>
-                    </div>
-
-                    <div className="section-title" style={{ marginTop: '16px' }}>
-                      <span>4</span> Dilekçe Metni Düzenle
-                    </div>
-                    <div className="form-group">
-                      <textarea 
-                        className="petition-textarea" 
-                        value={petitionText} 
-                        onChange={(e) => setPetitionText(e.target.value)} 
-                        rows={6}
-                      />
-                    </div>
+                    <textarea 
+                      className="petition-textarea" 
+                      value={petitionText} 
+                      onChange={(e) => {
+                        setPetitionText(e.target.value);
+                        setIsEdited(true);
+                      }} 
+                      rows={6}
+                    />
                   </div>
+                </div>
 
-                  {/* Right Column: Beautiful Live Paper Mockup Preview */}
-                  <div className="preview-column">
-                    <div className="paper-header">DİLEKÇE ÖNİZLEME</div>
-                    <div className="paper-sheet">
-                      <div className="paper-university">İSKENDERUN TEKNİK ÜNİVERSİTESİ</div>
-                      <div className="paper-dept">{department ? department.toUpperCase() : "..."} DEKANLIĞINA / MÜDÜRLÜĞÜNE</div>
-                      <div className="paper-city">İskenderun</div>
-                      
-                      <div className="paper-date">Tarih: {new Date().toLocaleDateString('tr-TR')}</div>
-                      
-                      <div className="paper-info-block">
-                        <div><strong>Adı Soyadı:</strong> {fullname}</div>
-                        <div><strong>Öğrenci No:</strong> {studentId}</div>
-                        <div><strong>Bölümü:</strong> {department}</div>
-                        <div><strong>Telefon:</strong> {phone}</div>
-                      </div>
+                {/* Right Column: Beautiful Live Paper Mockup Preview */}
+                <div className="preview-column">
+                  <div className="paper-header">RESMİ A4 KAĞIT ÖNİZLEME</div>
+                  <div className="paper-sheet">
+                    <div className="paper-university">İSKENDERUN TEKNİK ÜNİVERSİTESİ</div>
+                    <div className="paper-dept">{department ? department.toUpperCase() : "..."} DEKANLIĞINA / MÜDÜRLÜĞÜNE</div>
+                    <div className="paper-city">İskenderun</div>
+                    
+                    <div className="paper-date">Tarih: {new Date().toLocaleDateString('tr-TR')}</div>
+                    
+                    <div className="paper-info-block">
+                      <div><strong>Adı Soyadı:</strong> {fullname}</div>
+                      <div><strong>Öğrenci No:</strong> {studentId}</div>
+                      <div><strong>Bölümü:</strong> {department}</div>
+                      <div><strong>Telefon:</strong> {phone}</div>
+                    </div>
 
-                      <div className="paper-subject"><strong>KONU:</strong> Mazeret Sınavı Talebi ({courseCode} - {courseName})</div>
+                    <div className="paper-subject"><strong>KONU:</strong> Mazeret Sınavı Talebi ({courseCode} - {courseName})</div>
 
-                      <div className="paper-body">
-                        {petitionText || "Dilekçe içeriği burada görüntülenecektir..."}
-                      </div>
+                    <div className="paper-body">
+                      {petitionText || "Dilekçe içeriği burada görüntülenecektir..."}
+                    </div>
 
-                      <div className="paper-signature-block">
-                        <div>İmza</div>
-                        <div style={{ marginTop: '8px', fontWeight: '500' }}>{fullname}</div>
-                      </div>
+                    <div className="paper-signature-block">
+                      <div>İmza</div>
+                      <div style={{ marginTop: '8px', fontWeight: '500' }}>{fullname}</div>
+                    </div>
 
-                      <div className="paper-attachments">
-                        <strong>EKLER:</strong>
-                        <div>1. Mazeret Belgesi / Rapor Fotokopisi ({institution || "..."} onaylı, {dateRange || "..."} tarihli)</div>
-                      </div>
+                    <div className="paper-attachments">
+                      <strong>EKLER:</strong>
+                      <div>1. Mazeret Belgesi / Rapor Fotokopisi ({institution || "..."} onaylı, {dateRange || "..."} tarihli)</div>
                     </div>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Modal Footer */}
-            {step === 2 && (
-              <div className="scan-modal-footer">
-                <button className="btn-secondary" onClick={() => { setStep(1); setScanFile(null); }}>
-                  Geri
-                </button>
-                <button className="btn-primary download-action-btn" onClick={handleSaveAndDownloadPDF}>
-                  <Check size={16} /> Dilekçeyi Kaydet ve PDF İndir
-                </button>
-              </div>
-            )}
+            <div className="scan-modal-footer">
+              <button className="btn-secondary" onClick={() => { setIsScanModalOpen(false); setIsEdited(false); }}>
+                Kapat
+              </button>
+              <button className="btn-primary download-action-btn" onClick={handleSaveAndDownloadPDF}>
+                <Check size={16} /> Dilekçeyi Kaydet ve PDF İndir
+              </button>
+            </div>
           </div>
         </div>
       )}
