@@ -227,7 +227,7 @@ async def scan_document(file: UploadFile = File(...)):
             
             print("File uploaded. Generating content from Gemini...")
             response = gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-flash-latest",
                 contents=[file_obj, prompt]
             )
             

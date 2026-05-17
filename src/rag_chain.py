@@ -32,7 +32,7 @@ def get_rag_chain():
     
     # 3. Setup LLM (Google Gemini - hızlı ve günlük 1500 istek)
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-flash-latest",
         temperature=0,
         google_api_key=os.environ.get("GOOGLE_API_KEY")
     )

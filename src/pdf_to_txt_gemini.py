@@ -32,11 +32,11 @@ def process_pdf(pdf_path, output_txt_path):
                 os.remove(temp_pdf_path)
         
         print("File uploaded. Generating text extraction...")
-        # We use gemini-2.5-flash which is excellent at multimodal document processing
+        # We use gemini-1.5-flash which is excellent at multimodal document processing
         prompt = "Bu PDF dosyasını dikkatlice incele. İçindeki tüm metinleri ve tabloları Markdown formatında düz metin olarak çıkar. Hiçbir veriyi veya tarihi atlama. Tabloları çok düzgün, okunabilir ve Markdown (veya listeler) halinde sun. Belge Türkçe olduğu için Türkçe karakterlere çok dikkat et."
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-1.5-flash",
             contents=[file_obj, prompt]
         )
         
