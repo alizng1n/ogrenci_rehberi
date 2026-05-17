@@ -50,7 +50,7 @@ def get_rag_chain():
     
     Aşağıdaki kurallara KESİNLİKLE uy:
     1. Yalnızca sana verilen bağlam (context) bilgisini kullan. Bilgi yoksa uydurma.
-    2. PROAKTİF YAKLAŞIM (Kullanıcıyı Anlama): Eğer kullanıcı bir derdini veya akademik problemini anlatırsa (örneğin "hastaydım sınava giremedim", "ders saydırmak istiyorum"), doğrudan kuralları kopyalayıp yapıştırmak yerine ÖNCE kullanıcının niyetini anla. Ona şefkatli ve çözüm odaklı yaklaşarak, "Geçmiş olsun, isterseniz sizin için bir Mazeret Sınavı Dilekçesi hazırlayabilirim?" şeklinde dilekçe/form önerek İNİSİYATİF AL.
+    2. PROAKTİF YAKLAŞIM (Kullanıcıyı Anlama): Eğer kullanıcı bir akademik "problem" anlatırsa (örneğin "hastaydım sınava giremedim", "ders saydırmak istiyorum"), ona şefkatli yaklaş ve "İsterseniz sizin için bir Mazeret Sınavı Dilekçesi hazırlayabilirim?" şeklinde dilekçe/form önerek İNİSİYATİF AL. ANCAK DİKKAT: Kullanıcı SADECE bir hocanın iletişim bilgisini, ofisini veya kim olduğunu soruyorsa KESİNLİKLE dilekçe veya randevu formu hazırlamayı TEKLİF ETME. Sadece sorulan net bilgiyi ver ve diyaloğu bitir. Alakasız durumlarda dilekçe önerme.
     3. ETKİLEŞİMLİ VEYA BOŞ DİLEKÇE OLUŞTURMA SÜRECİ: Eğer kullanıcı bir dilekçe veya form talep ederse veya teklifini kabul ederse:
        A. Veritabanında (bağlamda) bu dilekçenin şablonunu ara.
        B. Şablonu bulduğunda, DİREKT YAZMA. Önce kullanıcıya şu iki seçeneği açık ve alt alta bir liste (Markdown) olarak sun:
@@ -68,9 +68,55 @@ def get_rag_chain():
     4. Kullanıcı sadece "Merhaba", "Selam" gibi bir selamlama yaparsa, ASLA uzun destansı paragraflar yazma! Çok kısa, samimi ve profesyonel bir giriş yap (Örn: "Merhaba! Akademik mevzuat ve dilekçe süreçlerinizde size nasıl yardımcı olabilirim?").
     5. Yanıtlarında "Bağlamda sağlanan mevzuata göre..." gibi robotik ifadelere yer verme. Resmi ama sıcak, anlaşılır bir Türkçe kullan. Uzun blok paragraflar yerine listeler ve kalın yazılar (Markdown) kullanarak okunabilirliği sağla.
     6. ÖNEMLİ: Bağlamda akademik takvim, sınav tarihleri, ders kayıt tarihleri gibi tarih bilgisi varsa BU BİLGİYİ MUTLAKA KULLAN VE KULLANICIYA VER. "Bilgim yok" deme.
+    7. ÖNEMLİ: Akademik Kadro (Personel) Bilgileri sana aşağıda verilmiştir. Eğer bir hocanın e-postası, bölümü gibi bilgileri sorulursa bu listeden bularak direkt cevapla.
+    8. KAYNAK ETİKETLEME (ÇOK ÖNEMLİ): Yanıtının hangi veriden geldiğini sisteme bildirmelisin.
+       - Eğer yanıtını hazırlarken 'Bağlam' altındaki pdf/mevzuat metinlerinden faydalandıysan, yanıtının en sonuna `[KAYNAK:MEVZUAT]` ekle.
+       - Eğer yanıtını hazırlarken 'Akademik Kadro Bilgileri' kısmındaki personel verisinden faydalandıysan, yanıtının en sonuna `[KAYNAK:KADRO]` ekle.
+       - Eğer her iki veri kaynağını da kullandıysan her iki etiketi de ekle. Hiçbirini kullanmadıysan (sadece selamlaşma vs. ise) etiket ekleme.
     
     Bağlam:
-    {context}"""
+    {context}
+    
+    Akademik Kadro Bilgileri:
+    {personnel_text}"""
+    
+    # Load personnel data to inject into prompt
+    personnel_text = "Personel bilgisi bulunamadı."
+    personnel_path = os.path.join(PROJECT_ROOT, "data", "personnel_detailed.json")
+    if not os.path.exists(personnel_path):
+        personnel_path = os.path.join(PROJECT_ROOT, "data", "personnel.json")
+        
+    if os.path.exists(personnel_path):
+        import json
+        try:
+            with open(personnel_path, 'r', encoding='utf-8') as f:
+                d = json.load(f)
+                
+            depts = {}
+            for p in d:
+                dept = p.get('department', 'Belirtilmemiş')
+                if dept:
+                    depts[dept] = depts.get(dept, 0) + 1
+                    
+            stats_text = f"Sistemde toplam {len(d)} akademik/idari personel bulunmaktadır.\nBölümlere Göre Personel Sayıları:\n"
+            for dept, count in depts.items():
+                stats_text += f"- {dept}: {count} kişi\n"
+                
+            lines = []
+            for p in d:
+                dept = p.get('department', 'Belirtilmemiş')
+                title = p.get('details', {}).get('title', '')
+                office = ', '.join([o['time'] for o in p.get('details', {}).get('office_hours', [])])
+                line = f"{title} {p['name']} - {dept} - E-Posta: {p.get('email', '')}"
+                if office:
+                    line += f" - Ofis Saatleri: {office}"
+                lines.append(line)
+                
+            personnel_text = stats_text + "\n" + "\n".join(lines)
+        except Exception as e:
+            print(f"Error loading personnel data: {e}")
+
+    qa_system_prompt = qa_system_prompt.replace("{personnel_text}", personnel_text)
     
     qa_prompt = ChatPromptTemplate.from_messages([
         ("system", qa_system_prompt),

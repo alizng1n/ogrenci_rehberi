@@ -2,8 +2,9 @@ import { useState, useRef, useEffect } from 'react';
 import { 
   MessageSquare, History, Library, Settings, 
   Send, Search, Plus, CheckCircle2, AlertTriangle, 
-  FileText, ArrowRight, User, Sun, Moon, Home,
-  Upload, Camera, Check, X, FileCheck, Bell
+  FileText, ArrowRight, User, Users, Sun, Moon, Home,
+  Upload, Camera, Check, X, FileCheck, Bell, Mail, ExternalLink,
+  Clock, Info, Loader2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
@@ -14,11 +15,26 @@ function App() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const savedTheme = localStorage.getItem('theme');
+    return savedTheme !== null ? savedTheme === 'dark' : true;
+  });
   const [stats, setStats] = useState({ total: 0, ready: 0, review: 0, efficiency: 0 });
   const [drafts, setDrafts] = useState([]);
   const [sources, setSources] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
+  const [personnel, setPersonnel] = useState([]);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [dirSearch, setDirSearch] = useState('');
+  const [dirDept, setDirDept] = useState('all');
+  
+  // Person Profile Modal State
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [selectedPerson, setSelectedPerson] = useState(null);
+  const [personDetailLoading, setPersonDetailLoading] = useState(false);
+  const [personDetail, setPersonDetail] = useState(null);
+  const [activeAccordion, setActiveAccordion] = useState(null);
+
   const messagesEndRef = useRef(null);
 
   // Dilekçe Modal State
@@ -39,6 +55,22 @@ function App() {
   const [isEdited, setIsEdited] = useState(false);
 
   // Dynamic automatic petition compiler
+  const handlePersonClick = async (person) => {
+    setSelectedPerson(person);
+    setIsProfileModalOpen(true);
+    setPersonDetailLoading(true);
+    setPersonDetail(null);
+    setActiveAccordion(null);
+    try {
+      const res = await axios.get(`http://localhost:8000/api/person_detail?url=${encodeURIComponent(person.profile_url)}`);
+      setPersonDetail(res.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPersonDetailLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!isEdited) {
       setPetitionText(
@@ -50,16 +82,18 @@ function App() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsRes, draftsRes, sourcesRes, annRes] = await Promise.all([
+        const [statsRes, draftsRes, sourcesRes, annRes, personnelRes] = await Promise.all([
           axios.get('http://localhost:8000/api/stats'),
           axios.get('http://localhost:8000/api/drafts'),
           axios.get('http://localhost:8000/api/sources'),
-          axios.get('http://localhost:8000/api/announcements')
+          axios.get('http://localhost:8000/api/announcements'),
+          axios.get('http://localhost:8000/api/personnel')
         ]);
         setStats(statsRes.data);
         setDrafts(draftsRes.data);
         setSources(sourcesRes.data);
         setAnnouncements(annRes.data);
+        setPersonnel(personnelRes.data);
       } catch (err) {
         console.error("Failed to fetch data", err);
       }
@@ -70,8 +104,10 @@ function App() {
   useEffect(() => {
     if (isDarkMode) {
       document.body.classList.remove('light-theme');
+      localStorage.setItem('theme', 'dark');
     } else {
       document.body.classList.add('light-theme');
+      localStorage.setItem('theme', 'light');
     }
   }, [isDarkMode]);
 
@@ -234,8 +270,8 @@ function App() {
           style={{ 
             width: '100%', 
             border: '1px solid var(--border-color)', 
-            background: !isChatMode ? 'rgba(2, 132, 199, 0.1)' : 'transparent',
-            color: !isChatMode ? 'var(--text-primary)' : 'var(--text-secondary)',
+            background: !isChatMode && activeTab === 'dashboard' ? 'rgba(2, 132, 199, 0.1)' : 'transparent',
+            color: !isChatMode && activeTab === 'dashboard' ? 'var(--text-primary)' : 'var(--text-secondary)',
             display: 'flex', 
             alignItems: 'center', 
             gap: '12px',
@@ -247,14 +283,38 @@ function App() {
             marginBottom: '12px',
             transition: 'all 0.2s'
           }} 
-          onClick={() => setIsChatMode(false)}
+          onClick={() => { setIsChatMode(false); setActiveTab('dashboard'); }}
         >
           <Home size={18} /> Menü (Ana Sayfa)
         </button>
 
-        <button className="new-chat-btn" onClick={() => handleStartChat()} style={{ marginBottom: '32px' }}>
+        <button className="new-chat-btn" onClick={() => handleStartChat()} style={{ marginBottom: '12px' }}>
           <Plus size={18} />
-          Yeni Sorgulama
+          Soru Sor & Danış
+        </button>
+
+        {/* Directory Button */}
+        <button 
+          className="nav-item" 
+          style={{ 
+            width: '100%', 
+            border: '1px solid var(--border-color)', 
+            background: !isChatMode && activeTab === 'directory' ? 'rgba(2, 132, 199, 0.1)' : 'transparent',
+            color: !isChatMode && activeTab === 'directory' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '12px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: '500',
+            fontSize: '14px',
+            marginBottom: '32px',
+            transition: 'all 0.2s'
+          }} 
+          onClick={() => { setIsChatMode(false); setActiveTab('directory'); }}
+        >
+          <Users size={18} /> Akademik Kadro
         </button>
 
         <div style={{ marginTop: 'auto' }}>
@@ -282,6 +342,7 @@ function App() {
       {/* Main Content */}
       <main className="main-content">
         {!isChatMode ? (
+          activeTab === 'dashboard' ? (
           <>
             <div className="content-wrapper" style={{ paddingTop: '48px' }}>
               <div className="page-header">
@@ -315,7 +376,7 @@ function App() {
                 <div className="dashboard-card" style={{ gridColumn: '1 / -1', padding: '0', overflow: 'hidden' }}>
                   <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <Bell size={18} style={{ color: 'var(--accent-blue)' }} />
-                    <h3 style={{ fontSize: '16px', fontWeight: '600', margin: 0 }}>ÖİDB Güncel Duyurular</h3>
+                    <h3 style={{ fontSize: '16px', fontWeight: '600', margin: 0 }}>İSTE'den Güncel Duyurular</h3>
                   </div>
                   <div style={{ padding: '0' }}>
                     {announcements.length > 0 ? (
@@ -410,6 +471,191 @@ function App() {
 
             </div>
           </>
+          ) : (
+             <div className="content-wrapper" style={{ paddingTop: '48px' }}>
+                <div className="page-header">
+                  <div>
+                    <h2>Akademik Kadro Rehberi</h2>
+                    <p>İSTE Akademik ve İdari Personel iletişim bilgileri ({personnel.length} kişi)</p>
+                  </div>
+                </div>
+                
+                {/* Search & Filter Bar */}
+                <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
+                  <div style={{ position: 'relative', flex: '1 1 300px' }}>
+                    <Search size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                    <input
+                      type="text"
+                      placeholder="İsim veya e-posta ara..."
+                      value={dirSearch}
+                      onChange={(e) => setDirSearch(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '12px 14px 12px 40px',
+                        borderRadius: '10px',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-sidebar)',
+                        color: 'var(--text-primary)',
+                        fontSize: '14px',
+                        outline: 'none',
+                        transition: 'border 0.2s'
+                      }}
+                    />
+                  </div>
+                  <select
+                    value={dirDept}
+                    onChange={(e) => setDirDept(e.target.value)}
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: '10px',
+                      border: '1px solid var(--border-color)',
+                      background: 'var(--bg-sidebar)',
+                      color: 'var(--text-primary)',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      minWidth: '200px'
+                    }}
+                  >
+                    <option value="all">Tüm Bölümler</option>
+                    {[...new Set(personnel.map(p => p.department).filter(Boolean))].sort().map(dept => (
+                      <option key={dept} value={dept}>{dept}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Personnel Grid */}
+                {(() => {
+                  const filtered = personnel.filter(p => {
+                    const matchSearch = !dirSearch || 
+                      p.name.toLowerCase().includes(dirSearch.toLowerCase()) ||
+                      (p.email && p.email.toLowerCase().includes(dirSearch.toLowerCase()));
+                    const matchDept = dirDept === 'all' || p.department === dirDept;
+                    return matchSearch && matchDept;
+                  }).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+
+                  const AVATAR_COLORS = [
+                    '#0284c7', '#7c3aed', '#059669', '#d97706', '#dc2626',
+                    '#2563eb', '#9333ea', '#0d9488', '#ca8a04', '#e11d48'
+                  ];
+
+                  const getInitials = (name) => {
+                    const parts = name.split(' ').filter(Boolean);
+                    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+                    return name.substring(0, 2).toUpperCase();
+                  };
+
+                  const getColor = (name) => {
+                    let hash = 0;
+                    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+                    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+                  };
+
+                  return (
+                    <>
+                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                        {filtered.length} sonuç gösteriliyor
+                      </div>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                        gap: '16px',
+                        marginBottom: '40px'
+                      }}>
+                        {filtered.length > 0 ? filtered.map((p, idx) => (
+                          <div key={idx} className="dashboard-card" style={{ 
+                            padding: '20px', 
+                            display: 'flex', 
+                            gap: '16px', 
+                            alignItems: 'flex-start',
+                            transition: 'transform 0.2s, box-shadow 0.2s',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => handlePersonClick(p)}
+                          onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 12px 30px rgba(0,0,0,0.12)'; }}
+                          onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = ''; }}
+                          >
+                            {/* Avatar */}
+                            <div style={{
+                              width: '48px',
+                              height: '48px',
+                              borderRadius: '12px',
+                              background: `linear-gradient(135deg, ${getColor(p.name)}, ${getColor(p.name)}dd)`,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#fff',
+                              fontWeight: '700',
+                              fontSize: '16px',
+                              flexShrink: 0,
+                              letterSpacing: '1px'
+                            }}>
+                              {getInitials(p.name)}
+                            </div>
+
+                            {/* Info */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <h4 style={{ margin: '0 0 6px 0', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {p.name}
+                              </h4>
+                              {p.department && (
+                                <span style={{ 
+                                  display: 'inline-block',
+                                  background: 'rgba(2,132,199,0.08)', 
+                                  color: 'var(--accent-blue)', 
+                                  padding: '3px 8px', 
+                                  borderRadius: '6px', 
+                                  fontSize: '11px', 
+                                  fontWeight: '600',
+                                  marginBottom: '8px',
+                                  letterSpacing: '0.3px'
+                                }}>
+                                  {p.department}
+                                </span>
+                              )}
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                {p.email && (
+                                  <a href={`mailto:${p.email}`} style={{ 
+                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                    fontSize: '12px', color: 'var(--text-secondary)', 
+                                    textDecoration: 'none', transition: 'color 0.2s'
+                                  }}
+                                  onMouseOver={(e) => e.currentTarget.style.color = 'var(--accent-blue)'}
+                                  onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
+                                  >
+                                    <Mail size={12} /> {p.email}
+                                  </a>
+                                )}
+                                {p.profile_url && (
+                                  <button onClick={(e) => { e.stopPropagation(); handlePersonClick(p); }} style={{
+                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                    fontSize: '12px', color: '#10b981', fontWeight: '600',
+                                    textDecoration: 'none', transition: 'all 0.2s',
+                                    background: 'rgba(16, 185, 129, 0.1)',
+                                    padding: '4px 8px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    cursor: 'pointer'
+                                  }}
+                                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.2)'}
+                                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.1)'}
+                                  >
+                                    <ExternalLink size={12} /> Profil
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )) : (
+                          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
+                            Sonuç bulunamadı.
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+             </div>
+          )
         ) : (
           /* Chat Interface */
           <div className="chat-container">
@@ -737,6 +983,208 @@ function App() {
               <button className="btn-primary download-action-btn" onClick={handleSaveAndDownloadPDF}>
                 <Check size={16} /> Dilekçeyi Kaydet ve PDF İndir
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Profile Modal */}
+      {isProfileModalOpen && selectedPerson && (
+        <div className="scan-modal-overlay" onClick={() => setIsProfileModalOpen(false)}>
+          <style>{`
+            @keyframes profileScaleFade {
+              0% { opacity: 0; transform: scale(0.9) translateY(20px); }
+              100% { opacity: 1; transform: scale(1) translateY(0); }
+            }
+          `}</style>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ 
+            maxWidth: '480px', 
+            width: '90%', 
+            padding: '0', 
+            background: 'var(--bg-card)', 
+            borderRadius: '20px', 
+            overflow: 'hidden', 
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            border: '1px solid var(--border-color)',
+            animation: 'profileScaleFade 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards'
+          }}>
+            {/* Header / Avatar Area */}
+            <div style={{ 
+              background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)',
+              padding: '40px 24px 24px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              position: 'relative'
+            }}>
+              <button 
+                onClick={() => setIsProfileModalOpen(false)}
+                style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '8px', borderRadius: '50%', transition: 'background 0.2s' }}
+                onMouseOver={e => e.currentTarget.style.background = 'rgba(0,0,0,0.05)'}
+                onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <X size={20} />
+              </button>
+              
+              <div style={{
+                width: '100px', height: '100px', borderRadius: '50%',
+                background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '32px', fontWeight: '700', letterSpacing: '1px',
+                boxShadow: '0 10px 25px rgba(2, 132, 199, 0.3)',
+                marginBottom: '16px', border: '4px solid var(--bg-card)'
+              }}>
+                {selectedPerson.name.split(' ').filter(Boolean).length >= 2 
+                  ? (selectedPerson.name.split(' ')[0][0] + selectedPerson.name.split(' ')[selectedPerson.name.split(' ').length - 1][0]).toUpperCase()
+                  : selectedPerson.name.substring(0, 2).toUpperCase()}
+              </div>
+              
+              <h2 style={{ margin: '0 0 8px 0', fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)', textAlign: 'center' }}>
+                {selectedPerson.name}
+              </h2>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                {personDetailLoading ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                    <Loader2 size={16} className="spinning" /> Yükleniyor...
+                  </div>
+                ) : personDetail?.title ? (
+                  <span style={{ fontSize: '15px', color: 'var(--text-secondary)', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    {personDetail.title}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Öğretim Elemanı</span>
+                )}
+                
+                {selectedPerson.department && (
+                  <span style={{ background: 'var(--bg-sidebar)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }}>
+                    {selectedPerson.department}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div style={{ padding: '24px' }}>
+              {/* Badges / Links */}
+              {personDetail && !personDetailLoading && (
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginBottom: '24px' }}>
+                  {personDetail.yoksis && (
+                    <a href={personDetail.yoksis} target="_blank" rel="noopener noreferrer" style={{
+                      background: '#ef4444', color: 'white', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.25)', transition: 'transform 0.2s'
+                    }} onMouseOver={e => e.currentTarget.style.transform='translateY(-2px)'} onMouseOut={e => e.currentTarget.style.transform='translateY(0)'}>
+                      YÖKSİS
+                    </a>
+                  )}
+                  {personDetail.orcid && (
+                    <a href={personDetail.orcid} target="_blank" rel="noopener noreferrer" style={{
+                      background: '#64748b', color: 'white', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(100, 116, 139, 0.25)', transition: 'transform 0.2s'
+                    }} onMouseOver={e => e.currentTarget.style.transform='translateY(-2px)'} onMouseOut={e => e.currentTarget.style.transform='translateY(0)'}>
+                      ORCID
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* Contact */}
+              <div style={{ background: 'var(--bg-sidebar)', padding: '16px', borderRadius: '12px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ background: 'rgba(2, 132, 199, 0.1)', padding: '10px', borderRadius: '50%', color: 'var(--accent-blue)' }}>
+                  <Mail size={18} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>E-Posta Adresi</div>
+                  <a href={`mailto:${selectedPerson.email}`} style={{ color: 'var(--text-primary)', fontWeight: '500', textDecoration: 'none', fontSize: '14px' }}>{selectedPerson.email}</a>
+                </div>
+              </div>
+
+              {/* Accordions */}
+              {personDetail && !personDetailLoading && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Direct Tasks (No Accordion, No Header) */}
+                  {personDetail.tasks && personDetail.tasks.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', background: 'var(--bg-sidebar)', padding: '16px', borderRadius: '12px' }}>
+                      {personDetail.tasks.map((t, i) => (
+                        <div key={i} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                          <Info size={18} color="#ec4899" style={{ flexShrink: 0, marginTop: '2px' }} />
+                          <div>
+                            <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>{t.unit}</div>
+                            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t.duty}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Direct Office Hours (No Accordion) */}
+                  {(() => {
+                    const hours = personDetail.office_hours;
+                    if (!hours || hours.length === 0) return null;
+
+                    const firstName = selectedPerson.name.split(' ')[0];
+                    const formattedName = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLocaleLowerCase('tr-TR');
+                    
+                    const schedule = {};
+                    let hasValidHours = false;
+                    
+                    hours.forEach(h => {
+                      const match = h.time.match(/([^\(]+)\s*\(\s*([0-9:]+)\s*-\s*([0-9:]+)\s*\)/);
+                      if (match) {
+                        hasValidHours = true;
+                        let day = match[1].trim().toLocaleLowerCase('tr-TR');
+                        const start = match[2].trim();
+                        const end = match[3].trim();
+                        
+                        if (!schedule[day]) schedule[day] = [];
+                        schedule[day].push({start, end});
+                      }
+                    });
+
+                    if (!hasValidHours) return null;
+
+                    const sentences = [];
+                    for (const [day, slots] of Object.entries(schedule)) {
+                      slots.sort((a, b) => a.start.localeCompare(b.start));
+                      const merged = [];
+                      let current = slots[0];
+                      for (let i = 1; i < slots.length; i++) {
+                        if (current.end === slots[i].start) {
+                          current.end = slots[i].end;
+                        } else {
+                          merged.push(current);
+                          current = slots[i];
+                        }
+                      }
+                      merged.push(current);
+                      
+                      const timeStrs = merged.map(m => `${m.start} ile ${m.end} saatleri arasında`);
+                      const timeText = timeStrs.join(', ayrıca ');
+                      sentences.push(`${day} günü ${timeText}`);
+                    }
+
+                    const daysText = sentences.join(' ve ');
+                    const naturalSentence = `${formattedName} Hoca, ${daysText} ofisinde bulunmaktadır.`;
+
+                    return (
+                      <div style={{ 
+                        marginTop: '8px', 
+                        background: 'rgba(16, 185, 129, 0.08)', 
+                        borderLeft: '4px solid #10b981',
+                        padding: '16px', 
+                        borderRadius: '0 8px 8px 0',
+                        color: 'var(--text-primary)',
+                        fontSize: '14px',
+                        lineHeight: '1.6',
+                        display: 'flex',
+                        gap: '12px',
+                        alignItems: 'flex-start'
+                      }}>
+                        <Clock size={20} color="#10b981" style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <div>{naturalSentence}</div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           </div>
         </div>

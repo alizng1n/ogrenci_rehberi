@@ -190,12 +190,29 @@ async def chat_endpoint(req: ChatRequest):
         return {"answer": "Bir hata oluştu, lütfen tekrar deneyin.", "sources": []}
 
     answer = response.get("answer") if isinstance(response, dict) else response["answer"]
+    
+    # Check for tags
+    used_mevzuat = "[KAYNAK:MEVZUAT]" in answer
+    used_kadro = "[KAYNAK:KADRO]" in answer
+    
+    # Remove tags from final output
+    answer = answer.replace("[KAYNAK:MEVZUAT]", "").replace("[KAYNAK:KADRO]", "").strip()
+
     source_docs = []
-    for doc in response.get("context", []):
+    
+    if used_mevzuat:
+        for doc in response.get("context", []):
+            source_docs.append({
+                "source": doc.metadata.get("source", "Bilinmiyor"),
+                "page": doc.metadata.get("page", "?"),
+                "content": doc.page_content[:200] + "..."
+            })
+            
+    if used_kadro:
         source_docs.append({
-            "source": doc.metadata.get("source", "Bilinmiyor"),
-            "page": doc.metadata.get("page", "?"),
-            "content": doc.page_content[:200] + "..."
+            "source": "Akademik Kadro Veritabanı",
+            "page": "-",
+            "content": "İSTE Güncel Personel, İletişim ve Ofis Saatleri Rehberi"
         })
 
     return {
@@ -585,3 +602,80 @@ async def get_announcements():
     except Exception as e:
         print(f"Error scraping announcements: {e}")
         return ANNOUNCEMENTS_CACHE["data"]
+
+@app.get("/api/personnel")
+async def get_personnel():
+    personnel_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'personnel.json')
+    if os.path.exists(personnel_file):
+        with open(personnel_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return []
+
+@app.get("/api/person_detail")
+async def get_person_detail(url: str):
+    import requests
+    from bs4 import BeautifulSoup
+    
+    details = {
+        "title": "",
+        "yoksis": "",
+        "orcid": "",
+        "tasks": [],
+        "office_hours": []
+    }
+    
+    try:
+        # Main profile page
+        r = requests.get(url, timeout=10)
+        soup = BeautifulSoup(r.text, 'html.parser')
+        
+        title_el = soup.select_one('h6.category.text-muted')
+        if title_el:
+            details["title"] = title_el.text.strip()
+            
+        yoksis_el = soup.select_one('a.button-yoksis')
+        if yoksis_el:
+            details["yoksis"] = yoksis_el.get('href')
+            
+        orcid_el = soup.select_one('a.button-orcid')
+        if orcid_el:
+            details["orcid"] = orcid_el.get('href')
+            
+        # Tasks page
+        try:
+            r_tasks = requests.get(f"{url}/tasks", timeout=10)
+            if r_tasks.status_code == 200:
+                soup_tasks = BeautifulSoup(r_tasks.text, 'html.parser')
+                task_items = soup_tasks.select('nav.ilistNavigation ul li')
+                for item in task_items:
+                    unit = item.select_one('div.ifirst')
+                    duty = item.select_one('div.isecond')
+                    if unit and duty:
+                        details["tasks"].append({
+                            "unit": unit.text.strip(),
+                            "duty": duty.text.strip()
+                        })
+        except:
+            pass
+            
+        # Office hours page
+        try:
+            r_office = requests.get(f"{url}/office-hours", timeout=10)
+            if r_office.status_code == 200:
+                soup_office = BeautifulSoup(r_office.text, 'html.parser')
+                office_items = soup_office.select('nav.ilistNavigation ul li')
+                for item in office_items:
+                    time_val = item.select_one('div.ifirst')
+                    desc = item.select_one('div.isecond')
+                    if time_val and desc:
+                        details["office_hours"].append({
+                            "time": time_val.text.strip(),
+                            "description": desc.text.strip()
+                        })
+        except:
+            pass
+            
+    except Exception as e:
+        print(f"Error fetching person details: {e}")
+        
+    return details
