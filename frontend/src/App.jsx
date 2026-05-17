@@ -180,33 +180,22 @@ function App() {
     }
   };
 
-  // Helper function to generate and download a clean blank university petition PDF
-  const handleDownloadBlankPDF = async () => {
+  // Downloads the actual original source file (e.g. .docx or .pdf) directly from data/raw/
+  const handleDownloadSourceFile = async (filename) => {
     try {
-      const response = await axios.post('http://localhost:8000/api/generate-pdf', {
-        title: "Mazeret Sınavı Başvuru Dilekçesi (Boş Şablon)",
-        fullname: "..................................................................",
-        student_id: "........................................",
-        phone: "........................................",
-        department: "..................................................................",
-        course_code: "........................",
-        course_name: "..................................................................",
-        reason: "..................................................................",
-        date_range: "...... / ...... / 2026 - ...... / ...... / 2026",
-        institution: "..................................................................",
-        petition_text: "Fakülteniz/Yüksekokulunuz .................................................... Bölümü ............................ numaralı öğrencisiyim. Öğrenim görmekte olduğum ............................ kodlu ve '....................................................' isimli dersin yarıyıl içi (vize) sınavına, ....../....../2026 - ....../....../2026 tarihlerini kapsayan ve .................................................... tarafından verilen ekteki mazeret belgemde belirtilen mazeretim nedeniyle katılamadım. Mevzuat gereğince ilgili ders için mazeret sınav hakkı tanınması hususunda gereğini ve bilgilerinizi saygılarımla arz ederim."
-      }, {
+      const response = await axios.get(`http://localhost:8000/api/download-source`, {
+        params: { filename },
         responseType: 'blob'
       });
       
-      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const blob = new Blob([response.data]);
       const link = document.createElement('a');
       link.href = window.URL.createObjectURL(blob);
-      link.download = `iste_bos_mazeret_dilekcesi.pdf`;
+      link.download = filename;
       link.click();
     } catch (err) {
-      console.error("PDF generation error", err);
-      alert("Şablon oluşturulurken bir hata oluştu. Lütfen bağlantınızı kontrol edip tekrar deneyin.");
+      console.error("Failed to download source file", err);
+      alert("Dosya indirilirken bir hata oluştu. Lütfen sunucuda dosyanın mevcut olduğundan emin olun.");
     }
   };
 
@@ -378,18 +367,13 @@ function App() {
                 </div>
               )}
               {messages.map((msg, idx) => {
-                // Highly deterministic matching logic: if the message is from assistant, and contains words like "şablon"/"dilekçe" and dots or "boş"
-                const hasBlankTemplate = msg.role === 'assistant' && msg.content && (
-                  msg.content.includes('[DOWNLOAD_BLANK_PETITION]') ||
-                  msg.content.includes('T.C. İSKENDERUN TEKNİK') ||
-                  (
-                    (msg.content.toLowerCase().includes('şablon') || msg.content.toLowerCase().includes('dilekçe')) && 
-                    (msg.content.toLowerCase().includes('boş') || msg.content.includes('.....') || msg.content.includes('.......'))
-                  )
-                );
+                // Check if message has the dynamic original file download tag
+                const downloadMatch = msg.role === 'assistant' && msg.content && msg.content.match(/\[DOWNLOAD_FILE:(.*?)\]/);
+                const fileToDownload = downloadMatch ? downloadMatch[1].trim() : null;
                 
-                const cleanContent = msg.content 
-                  ? msg.content.replace('[DOWNLOAD_BLANK_PETITION]', '').trim() 
+                // Remove the special tag so it stays completely hidden in the Markdown render
+                const cleanContent = fileToDownload 
+                  ? msg.content.replace(/\[DOWNLOAD_FILE:.*?\]/g, '').trim() 
                   : msg.content;
                 
                 return (
@@ -401,14 +385,14 @@ function App() {
                       <div className="message-content">
                         <ReactMarkdown>{cleanContent}</ReactMarkdown>
                       </div>
-                      {hasBlankTemplate && (
+                      {fileToDownload && (
                         <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-start' }}>
                           <button 
                             className="btn-primary" 
                             style={{ 
-                              background: 'linear-gradient(135deg, #00e5ff 0%, #00b0ff 100%)', 
-                              boxShadow: '0 4px 14px rgba(0, 229, 255, 0.25)',
-                              color: '#0a0f1d',
+                              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
+                              boxShadow: '0 4px 14px rgba(16, 185, 129, 0.25)',
+                              color: '#ffffff',
                               fontWeight: '600',
                               fontSize: '13px',
                               display: 'flex',
@@ -420,9 +404,9 @@ function App() {
                               cursor: 'pointer',
                               transition: 'all 0.2s ease'
                             }}
-                            onClick={handleDownloadBlankPDF}
+                            onClick={() => handleDownloadSourceFile(fileToDownload)}
                           >
-                            <FileText size={16} /> Resmi Boş Dilekçe Şablonunu İndir (PDF)
+                            <FileCheck size={16} /> Orijinal Boş Şablonu İndir ({fileToDownload})
                           </button>
                         </div>
                       )}

@@ -445,6 +445,35 @@ async def get_sources():
             files.append(f)
     return files
 
+@app.get("/api/download-source")
+async def download_source(filename: str):
+    from fastapi.responses import FileResponse
+    import urllib.parse
+    
+    # Sanitize filename to prevent directory traversal attacks
+    safe_name = os.path.basename(filename)
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    
+    # Try searching in data/raw/
+    file_path = os.path.join(project_root, "data", "raw", safe_name)
+    if os.path.exists(file_path):
+        return FileResponse(
+            file_path, 
+            filename=safe_name,
+            headers={"Content-Disposition": f"attachment; filename={urllib.parse.quote(safe_name)}"}
+        )
+        
+    # Try searching in data/archive/
+    archive_path = os.path.join(project_root, "data", "archive", safe_name)
+    if os.path.exists(archive_path):
+        return FileResponse(
+            archive_path, 
+            filename=safe_name,
+            headers={"Content-Disposition": f"attachment; filename={urllib.parse.quote(safe_name)}"}
+        )
+        
+    raise HTTPException(status_code=404, detail="File not found")
+
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}

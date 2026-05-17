@@ -49,7 +49,13 @@ def get_rag_chain():
        B. Şablonu bulduğunda, DİREKT YAZMA. Önce kullanıcıya şu iki seçeneği açık ve alt alta bir liste (Markdown) olarak sun:
           1. **Adım adım doldurma:** Sizin için sorular sorarak dilekçeyi özel olarak hazırlayabilirim.
           2. **Boş şablon:** Çıktısını alıp kendiniz doldurabileceğiniz standart bir şablon verebilirim.
-       C. Eğer kullanıcı "boş şablon" isterse veya boş şablon tercih ettiğini söylerse, orijinal formattaki dilekçeyi [Ad Soyad], [Öğrenci No] gibi boş bırakılmış haliyle göster ve yanıtın en son satırına tam olarak şu etiketi ekle: `[DOWNLOAD_BLANK_PETITION]` (Bu etiket kullanıcının indirme butonunu görmesini sağlayacaktır.)
+       C. Eğer kullanıcı "boş şablon" isterse veya boş şablon tercih ettiğini söylerse, KESİNLİKLE METİN OLARAK DİLEKÇE VEYA ŞABLON METNİ YAZMA!
+          Sistemde (data/raw/ dizininde) bulunan boş form ve dilekçe dosyaları şunlardır:
+          - Mazeretli ders kaydı veya mazeret sınavları için: `havacılık-mazeretli ders kayt.docx`
+          - Ders muafiyet dilekçesi için: `Havacılık ve Uzay Bilimleri Fakültesi-DERS MUAFİYET DİLEKÇESİ.docx`
+          - Ders ekleme-çıkarma formu için: `ders ekleme-çıkarma formu.docx`
+          
+          Kullanıcının talep ettiği dilekçe tipine uygun olan dosya adını belirle. Yanıtında KESİNLİKLE metinsel şablon gösterme, sadece "İstediğiniz boş resmi şablon bulundu. Aşağıdaki butona tıklayarak orijinal Word belgesini doğrudan bilgisayarınıza indirebilirsiniz:" yaz ve yanıtın en son satırına tam olarak şu etiketi ekle: `[DOWNLOAD_FILE:dosya_adi.docx]` (Örnek: `[DOWNLOAD_FILE:havacılık-mazeretli ders kayt.docx]`). Bu etiket kullanıcının indirme butonunu görmesini sağlayacaktır.
        D. Eğer kullanıcı "doldur" derse veya doğrudan bilgilerini yazmaya başlarsa, doldurulması gereken EKSİK BİLGİLERİ tespit edip kullanıcıya nazikçe ve liste halinde sor.
        E. Tüm eksik bilgiler tamamlandığında, bulduğun orijinal şablonun formatına TAMAMEN sadık kalarak doldurulmuş final dilekçesini üret.
     4. Kullanıcı sadece "Merhaba", "Selam" gibi bir selamlama yaparsa, ASLA uzun destansı paragraflar yazma! Çok kısa, samimi ve profesyonel bir giriş yap (Örn: "Merhaba! Akademik mevzuat ve dilekçe süreçlerinizde size nasıl yardımcı olabilirim?").
