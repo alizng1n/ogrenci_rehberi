@@ -10,7 +10,6 @@ import ReactMarkdown from 'react-markdown';
 import './index.css';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('applications');
   const [isChatMode, setIsChatMode] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
@@ -41,7 +40,7 @@ function App() {
   useEffect(() => {
     if (!isEdited) {
       setPetitionText(
-        `Fakülteniz/Yüksekokulunuz {department} Bölümü {studentId} numaralı öğrencisiyim. Öğrenim görmekte olduğum {courseCode} kodlu ve '{courseName}' isimli dersin yarıyıl içi (vize) sınavına, {dateRange} tarihlerini kapsayan ve {institution} tarafından verilen ekteki mazeret belgemde (Tanı: {reason}) belirtilen mazeretim nedeniyle katılamadım. Mevzuat gereğince ilgili ders için mazeret sınav hakkı tanınması hususunda gereğini ve bilgilerinizi saygılarımla arz ederim.`
+        `Fakülteniz/Yüksekokulunuz ${department} Bölümü ${studentId} numaralı öğrencisiyim. Öğrenim görmekte olduğum ${courseCode} kodlu ve '${courseName}' isimli dersin yarıyıl içi (vize) sınavına, ${dateRange} tarihlerini kapsayan ve ${institution} tarafından verilen ekteki mazeret belgemde (Tanı: ${reason}) belirtilen mazeretim nedeniyle katılamadım. Mevzuat gereğince ilgili ders için mazeret sınav hakkı tanınması hususunda gereğini ve bilgilerinizi saygılarımla arz ederim.`
       );
     }
   }, [fullname, studentId, phone, department, courseCode, courseName, reason, dateRange, institution, isEdited]);
@@ -213,44 +212,37 @@ function App() {
           Yeni Sorgulama
         </button>
 
-        <ul className="nav-links">
-          <li className={`nav-item ${activeTab === 'history' ? 'active' : ''}`} onClick={() => { setActiveTab('history'); setIsChatMode(false); }}>
-            <History className="nav-icon" /> Geçmiş
-          </li>
-          <li className={`nav-item ${activeTab === 'library' ? 'active' : ''}`} onClick={() => { setActiveTab('library'); setIsChatMode(false); }}>
-            <Library className="nav-icon" /> Kütüphane
-          </li>
-          <li className={`nav-item ${activeTab === 'applications' ? 'active' : ''}`} onClick={() => { setActiveTab('applications'); setIsChatMode(false); }}>
-            <FileText className="nav-icon" /> Başvurularım
-          </li>
-          <li className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => { setActiveTab('settings'); setIsChatMode(false); }}>
-            <Settings className="nav-icon" /> Ayarlar
-          </li>
-          <li className="nav-item" onClick={() => setIsDarkMode(!isDarkMode)} style={{ marginTop: 'auto' }}>
-            {isDarkMode ? <Sun className="nav-icon" /> : <Moon className="nav-icon" />}
+        <div style={{ marginTop: 'auto' }}>
+          <button 
+            className="btn-secondary" 
+            onClick={() => setIsDarkMode(!isDarkMode)} 
+            style={{ 
+              width: '100%', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              gap: '8px',
+              padding: '10px',
+              fontSize: '13px',
+              borderColor: 'var(--border-color)',
+              color: 'var(--text-secondary)'
+            }}
+          >
+            {isDarkMode ? <Sun size={14} /> : <Moon size={14} />}
             {isDarkMode ? 'Açık Tema' : 'Koyu Tema'}
-          </li>
-        </ul>
+          </button>
+        </div>
       </aside>
 
       {/* Main Content */}
       <main className="main-content">
         {!isChatMode ? (
           <>
-            <div className="topbar">
-              <div className="search-bar">
-                <Search size={16} color="#94A3B8" />
-                <input type="text" placeholder="Mevzuatlarda ara..." onKeyDown={(e) => {
-                  if(e.key === 'Enter') handleStartChat(e.target.value);
-                }} />
-              </div>
-            </div>
-
-            <div className="content-wrapper">
+            <div className="content-wrapper" style={{ paddingTop: '48px' }}>
               <div className="page-header">
                 <div>
-                  <h2>Dilekçe Taslaklarım</h2>
-                  <p>Akademik Mevzuat Portalı aracılığıyla hazırlanan resmi dilekçelerinizi yönetin.</p>
+                  <h2>Dilekçe İşlemleri</h2>
+                  <p>Akademik Mevzuat Portalı aracılığıyla resmi dilekçelerinizi oluşturun ve yönetin.</p>
                 </div>
                 <button className="new-chat-btn" style={{ background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', margin: 0, boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)' }} onClick={() => setIsScanModalOpen(true)}>
                   <FileText size={18} />
@@ -260,7 +252,7 @@ function App() {
 
               <div className="stats-grid">
                 <div className="stat-card">
-                  <div className="stat-title">TOPLAM TASLAK</div>
+                  <div className="stat-title">TOPLAM DILEKÇE</div>
                   <div className="stat-value white">{stats.total}</div>
                 </div>
                 <div className="stat-card">
@@ -332,25 +324,6 @@ function App() {
                     </div>
                   );
                 })}
-              </div>
-              
-              <div className="dashboard-card" style={{ marginTop: '20px', background: isDarkMode ? 'linear-gradient(90deg, #181D2D 0%, #131622 100%)' : 'var(--bg-sidebar)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                  <div style={{ background: 'rgba(0,229,255,0.1)', color: 'var(--accent-blue)', padding: '8px', borderRadius: '8px' }}>
-                    <Library size={16} />
-                  </div>
-                  <h4 style={{ color: 'var(--accent-blue)', fontSize: '13px', letterSpacing: '1px' }}>YÜKLÜ KAYNAKLAR</h4>
-                </div>
-                <h3 style={{ fontSize: '24px', marginBottom: '12px' }}>Sistemdeki Mevzuatlar</h3>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '16px' }}>
-                  {sources.length > 0 ? sources.map((src, i) => (
-                    <div key={i} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', padding: '8px 12px', borderRadius: '8px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <FileText size={14} color="var(--text-secondary)" /> {src}
-                    </div>
-                  )) : (
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Henüz sisteme yüklenmiş bir kaynak bulunmuyor.</p>
-                  )}
-                </div>
               </div>
 
             </div>
