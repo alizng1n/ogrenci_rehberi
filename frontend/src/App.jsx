@@ -180,6 +180,36 @@ function App() {
     }
   };
 
+  // Helper function to generate and download a clean blank university petition PDF
+  const handleDownloadBlankPDF = async () => {
+    try {
+      const response = await axios.post('http://localhost:8000/api/generate-pdf', {
+        title: "Mazeret Sınavı Başvuru Dilekçesi (Boş Şablon)",
+        fullname: "..................................................................",
+        student_id: "........................................",
+        phone: "........................................",
+        department: "..................................................................",
+        course_code: "........................",
+        course_name: "..................................................................",
+        reason: "..................................................................",
+        date_range: "...... / ...... / 2026 - ...... / ...... / 2026",
+        institution: "..................................................................",
+        petition_text: "Fakülteniz/Yüksekokulunuz .................................................... Bölümü ............................ numaralı öğrencisiyim. Öğrenim görmekte olduğum ............................ kodlu ve '....................................................' isimli dersin yarıyıl içi (vize) sınavına, ....../....../2026 - ....../....../2026 tarihlerini kapsayan ve .................................................... tarafından verilen ekteki mazeret belgemde belirtilen mazeretim nedeniyle katılamadım. Mevzuat gereğince ilgili ders için mazeret sınav hakkı tanınması hususunda gereğini ve bilgilerinizi saygılarımla arz ederim."
+      }, {
+        responseType: 'blob'
+      });
+      
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const link = document.createElement('a');
+      link.href = window.URL.createObjectURL(blob);
+      link.download = `iste_bos_mazeret_dilekcesi.pdf`;
+      link.click();
+    } catch (err) {
+      console.error("PDF generation error", err);
+      alert("Şablon oluşturulurken bir hata oluştu. Lütfen bağlantınızı kontrol edip tekrar deneyin.");
+    }
+  };
+
   return (
     <div className="app-container">
       {/* Sidebar */}
@@ -347,18 +377,50 @@ function App() {
                   <p>Üniversite mevzuatları hakkında soru sorabilirsiniz.</p>
                 </div>
               )}
-              {messages.map((msg, idx) => (
-                <div key={idx} className={`message ${msg.role}`}>
-                  <div className="message-avatar">
-                    {msg.role === 'user' ? <User size={18} /> : <img src="/iste_logo.png" alt="AI" style={{ width: '24px', height: '24px', objectFit: 'contain' }} />}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <div className="message-content">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+              {messages.map((msg, idx) => {
+                const hasBlankTemplate = msg.content && msg.content.includes('[DOWNLOAD_BLANK_PETITION]');
+                const cleanContent = hasBlankTemplate 
+                  ? msg.content.replace('[DOWNLOAD_BLANK_PETITION]', '').trim() 
+                  : msg.content;
+                
+                return (
+                  <div key={idx} className={`message ${msg.role}`}>
+                    <div className="message-avatar">
+                      {msg.role === 'user' ? <User size={18} /> : <img src="/iste_logo.png" alt="AI" style={{ width: '24px', height: '24px', objectFit: 'contain' }} />}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <div className="message-content">
+                        <ReactMarkdown>{cleanContent}</ReactMarkdown>
+                      </div>
+                      {hasBlankTemplate && (
+                        <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-start' }}>
+                          <button 
+                            className="btn-primary" 
+                            style={{ 
+                              background: 'linear-gradient(135deg, #00e5ff 0%, #00b0ff 100%)', 
+                              boxShadow: '0 4px 14px rgba(0, 229, 255, 0.25)',
+                              color: '#0a0f1d',
+                              fontWeight: '600',
+                              fontSize: '13px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '10px 18px',
+                              borderRadius: '8px',
+                              border: 'none',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease'
+                            }}
+                            onClick={handleDownloadBlankPDF}
+                          >
+                            <FileText size={16} /> Resmi Boş Dilekçe Şablonunu İndir (PDF)
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {isLoading && (
                 <div className="message assistant">
                   <div className="message-avatar"><img src="/iste_logo.png" alt="AI" style={{ width: '24px', height: '24px', objectFit: 'contain' }} /></div>
