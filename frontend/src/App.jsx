@@ -3,7 +3,7 @@ import {
   MessageSquare, History, Library, Settings, 
   Send, Search, Plus, CheckCircle2, AlertTriangle, 
   FileText, ArrowRight, User, Sun, Moon, Home,
-  Upload, Camera, Check, X, FileCheck
+  Upload, Camera, Check, X, FileCheck, Bell
 } from 'lucide-react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
@@ -18,10 +18,12 @@ function App() {
   const [stats, setStats] = useState({ total: 0, ready: 0, review: 0, efficiency: 0 });
   const [drafts, setDrafts] = useState([]);
   const [sources, setSources] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
   const messagesEndRef = useRef(null);
 
   // Dilekçe Modal State
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [activeSnippetId, setActiveSnippetId] = useState(null);
 
   // Petition Form States (with premium default values)
   const [fullname, setFullname] = useState('Ali Zengin');
@@ -48,14 +50,16 @@ function App() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsRes, draftsRes, sourcesRes] = await Promise.all([
+        const [statsRes, draftsRes, sourcesRes, annRes] = await Promise.all([
           axios.get('http://localhost:8000/api/stats'),
           axios.get('http://localhost:8000/api/drafts'),
-          axios.get('http://localhost:8000/api/sources')
+          axios.get('http://localhost:8000/api/sources'),
+          axios.get('http://localhost:8000/api/announcements')
         ]);
         setStats(statsRes.data);
         setDrafts(draftsRes.data);
         setSources(sourcesRes.data);
+        setAnnouncements(annRes.data);
       } catch (err) {
         console.error("Failed to fetch data", err);
       }
@@ -109,9 +113,25 @@ function App() {
       }]);
     } catch (error) {
       console.error(error);
+      // Daha açıklayıcı bir hata mesajı göstermeye çalış
+      let friendly = "Üzgünüm, bir hata oluştu. Lütfen sunucu bağlantısını kontrol edin.";
+      if (error.response && error.response.data) {
+        // Eğer backend özel bir cevap döndüyse onu göster
+        const data = error.response.data;
+        if (data.answer) {
+          friendly = data.answer;
+        } else if (data.detail) {
+          friendly = `Sunucu hatası: ${data.detail}`;
+        } else if (typeof data === 'string') {
+          friendly = data;
+        }
+      } else if (error.message) {
+        friendly = `Hata: ${error.message}`;
+      }
+
       setMessages([...newMessages, { 
         role: 'assistant', 
-        content: "Üzgünüm, bir hata oluştu. Lütfen sunucu bağlantısını kontrol edin." 
+        content: friendly
       }]);
     } finally {
       setIsLoading(false);
@@ -119,7 +139,8 @@ function App() {
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
       handleSendMessage();
     }
   };
@@ -289,6 +310,43 @@ function App() {
                 </div>
               </div>
 
+              {/* Announcements Section */}
+              <div className="cards-grid" style={{ marginBottom: '32px' }}>
+                <div className="dashboard-card" style={{ gridColumn: '1 / -1', padding: '0', overflow: 'hidden' }}>
+                  <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Bell size={18} style={{ color: 'var(--accent-blue)' }} />
+                    <h3 style={{ fontSize: '16px', fontWeight: '600', margin: 0 }}>ÖİDB Güncel Duyurular</h3>
+                  </div>
+                  <div style={{ padding: '0' }}>
+                    {announcements.length > 0 ? (
+                      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                        {announcements.map((item, idx) => (
+                          <li key={idx} style={{ borderBottom: idx !== announcements.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
+                            <a 
+                              href={item.href} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              style={{ display: 'block', padding: '16px 24px', textDecoration: 'none', color: 'var(--text-primary)', transition: 'background 0.2s' }}
+                              onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-sidebar)'}
+                              onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+                                <div style={{ fontSize: '14px', fontWeight: '500', lineHeight: '1.4' }}>{item.title}</div>
+                                {item.date && <div style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{item.date}</div>}
+                              </div>
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div style={{ padding: '24px', color: 'var(--text-secondary)', fontSize: '14px', textAlign: 'center' }}>
+                        Duyurular yükleniyor veya bulunamadı...
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="cards-grid">
                 {drafts.slice(0, 2).map((draft, idx) => (
                   <div key={draft.id} className="dashboard-card" onClick={() => handleStartChat(`${draft.title} hakkında bilgi ver.`)}>
@@ -378,10 +436,87 @@ function App() {
                     <div className="message-avatar">
                       {msg.role === 'user' ? <User size={18} /> : <img src="/iste_logo.png" alt="Portal" style={{ width: '24px', height: '24px', objectFit: 'contain' }} />}
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0 }}>
                       <div className="message-content">
                         <ReactMarkdown>{cleanContent}</ReactMarkdown>
                       </div>
+                      
+                      {(() => {
+                        const uniqueSources = [];
+                        if (msg.sources && msg.sources.length > 0) {
+                          const seen = new Set();
+                          msg.sources.forEach(s => {
+                            if (!s.source) return;
+                            const parts = s.source.split(/[/\\]/);
+                            const fname = parts[parts.length - 1];
+                            const key = `${fname}-${s.page}`;
+                            if(!seen.has(key)) {
+                              seen.add(key);
+                              uniqueSources.push({ ...s, cleanName: fname });
+                            }
+                          });
+                        }
+                        
+                        if (uniqueSources.length === 0) return null;
+                        
+                        return (
+                          <div className="sources-insights">
+                            <div className="sources-insights-title">
+                              <Library size={12} /> Kaynaklar:
+                            </div>
+                            <div className="sources-chips-scroll">
+                              {uniqueSources.map((src, srcIdx) => {
+                                const snippetId = `msg_${idx}_src_${srcIdx}`;
+                                const isActive = activeSnippetId === snippetId;
+                                return (
+                                  <div 
+                                    key={srcIdx} 
+                                    className={`source-chip ${isActive ? 'active' : ''}`}
+                                    onClick={() => setActiveSnippetId(isActive ? null : snippetId)}
+                                  >
+                                    <FileText size={14} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }} title={src.cleanName}>{src.cleanName}</span>
+                                    {src.page && src.page !== '?' && <span>(S. {src.page})</span>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            
+                            {/* Show Snippet if active */}
+                            {uniqueSources.map((src, srcIdx) => {
+                              const snippetId = `msg_${idx}_src_${srcIdx}`;
+                              if (activeSnippetId === snippetId) {
+                                return (
+                                  <div key={`snippet_${srcIdx}`} className="source-snippet-card">
+                                    <div className="source-snippet-header">
+                                      <span><strong>{src.cleanName}</strong> {src.page !== '?' ? `(Sayfa ${src.page}) ` : ''}içerisinden kesit:</span>
+                                      <button 
+                                        onClick={() => setActiveSnippetId(null)}
+                                        style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex' }}
+                                      >
+                                        <X size={14} />
+                                      </button>
+                                    </div>
+                                    <div style={{ fontStyle: 'italic' }}>
+                                      "...<span className="highlight-text">{src.content.trim()}</span>..."
+                                    </div>
+                                    <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+                                      <button 
+                                        onClick={() => handleDownloadSourceFile(src.cleanName)}
+                                        className="tag ready"
+                                        style={{ border: 'none', cursor: 'pointer', background: 'rgba(0, 229, 255, 0.1)', display: 'flex', gap: '6px', fontSize: '11px', padding: '6px 12px' }}
+                                      >
+                                        <Upload size={12} style={{ transform: 'rotate(180deg)' }} /> Belgeyi İndir
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })}
+                          </div>
+                        );
+                      })()}
                       {fileToDownload && (
                         <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-start' }}>
                           <button 
@@ -425,13 +560,23 @@ function App() {
             </div>
 
             <div className="chat-input-wrapper">
-              <input 
-                type="text" 
+              <textarea 
                 placeholder="Öğrenci rehberine sor..." 
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyPress}
                 disabled={isLoading}
+                rows={1}
+                style={{ 
+                  resize: 'none', 
+                  minHeight: '22px', 
+                  maxHeight: '120px', 
+                  overflowY: 'auto'
+                }}
+                onInput={(e) => {
+                  e.target.style.height = 'auto';
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                }}
               />
               <button className="send-btn" onClick={handleSendMessage} disabled={isLoading || !input.trim()}>
                 <Send size={16} />

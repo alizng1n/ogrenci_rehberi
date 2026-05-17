@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -30,11 +30,16 @@ def get_rag_chain():
     # Using similarity search. k=8 means retrieve top 8 most relevant chunks.
     retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
     
-    # 3. Setup LLM (Google Gemini - hızlı ve günlük 1500 istek)
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-flash-latest",
+    # 3. Setup LLM (OpenRouter üzerinden Auto-Routing - Limitlere takılmamak için)
+    llm = ChatOpenAI(
+        model="openrouter/auto", 
         temperature=0,
-        google_api_key=os.environ.get("GOOGLE_API_KEY")
+        openai_api_key=os.environ.get("OPENROUTER_API_KEY"),
+        openai_api_base="https://openrouter.ai/api/v1",
+        default_headers={
+            "HTTP-Referer": "http://localhost:8000", # OpenRouter için referans url
+            "X-Title": "Mevzuat Asistani"
+        }
     )
     
     # 4. Answer question prompt (RAG prompt)

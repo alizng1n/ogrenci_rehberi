@@ -14,6 +14,9 @@ import tempfile
 from datetime import datetime, timedelta
 from google import genai
 from fpdf import FPDF
+import time
+import requests
+from bs4 import BeautifulSoup
 
 # Ensure src module is reachable
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -142,42 +145,63 @@ async def chat_endpoint(req: ChatRequest):
         else:
             chat_history.append(AIMessage(content=msg.content))
 
-    try:
-        response = rag_chain.invoke({
-            "input": req.message,
-            "chat_history": chat_history
-        })
-        
-        answer = response["answer"]
-        source_docs = []
-        for doc in response.get("context", []):
-            source_docs.append({
-                "source": doc.metadata.get("source", "Bilinmiyor"),
-                "page": doc.metadata.get("page", "?"),
-                "content": doc.page_content[:200] + "..."
+    # Eğer API rate-limit (kota/429) kaynaklıysa, kısa denemelerle (exponential backoff) tekrar dene
+    max_retries = 3
+    backoff = 1
+    response = None
+    for attempt in range(max_retries):
+        try:
+            response = rag_chain.invoke({
+                "input": req.message,
+                "chat_history": chat_history
             })
-            
-        return {
-            "answer": answer,
-            "sources": source_docs
-        }
-    except Exception as e:
-        error_msg = str(e)
-        print(f"[CHAT ERROR] {error_msg}")
-        traceback.print_exc()
-        
-        # Gemini API rate limit hatası
-        if "429" in error_msg or "quota" in error_msg.lower() or "rate" in error_msg.lower() or "Resource has been exhausted" in error_msg:
-            return {
-                "answer": "⏳ Yapay zeka servisi şu an yoğun. Lütfen birkaç saniye bekleyip tekrar deneyin.",
-                "sources": []
-            }
-        
-        # Diğer hatalar
-        return {
-            "answer": f"Bir hata oluştu, lütfen tekrar deneyin. (Detay: {error_msg[:200]})",
-            "sources": []
-        }
+            break
+        except Exception as e:
+            error_msg = str(e)
+            is_rate_limit = (
+                "429" in error_msg or
+                "quota" in error_msg.lower() or
+                "rate" in error_msg.lower() or
+                "Resource has been exhausted" in error_msg
+            )
+
+            if is_rate_limit:
+                print(f"[CHAT RATE LIMIT] attempt {attempt+1}/{max_retries}: {error_msg}")
+                traceback.print_exc()
+                if attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                else:
+                    return {
+                        "answer": "⏳ Yapay zeka servisi şu an yoğun. Lütfen birkaç saniye bekleyip tekrar deneyin.",
+                        "sources": []
+                    }
+            else:
+                print(f"[CHAT ERROR] {error_msg}")
+                traceback.print_exc()
+                return {
+                    "answer": f"Bir hata oluştu, lütfen tekrar deneyin. (Detay: {error_msg[:200]})",
+                    "sources": []
+                }
+
+    # Başarılı yanıt alındıysa, sonucu formatla ve döndür
+    if response is None:
+        return {"answer": "Bir hata oluştu, lütfen tekrar deneyin.", "sources": []}
+
+    answer = response.get("answer") if isinstance(response, dict) else response["answer"]
+    source_docs = []
+    for doc in response.get("context", []):
+        source_docs.append({
+            "source": doc.metadata.get("source", "Bilinmiyor"),
+            "page": doc.metadata.get("page", "?"),
+            "content": doc.page_content[:200] + "..."
+        })
+
+    return {
+        "answer": answer,
+        "sources": source_docs
+    }
 
 # --- DOCUMENT SCAN & PDF GENERATION ENDPOINTS ---
 
@@ -505,3 +529,59 @@ async def download_source(filename: str):
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}
+
+ANNOUNCEMENTS_CACHE = {
+    "data": [],
+    "last_updated": 0
+}
+
+@app.get("/api/announcements")
+async def get_announcements():
+    global ANNOUNCEMENTS_CACHE
+    current_time = time.time()
+    
+    # Cache for 1 hour
+    if current_time - ANNOUNCEMENTS_CACHE["last_updated"] < 3600 and ANNOUNCEMENTS_CACHE["data"]:
+        return ANNOUNCEMENTS_CACHE["data"]
+        
+    try:
+        r = requests.get('https://iste.edu.tr/duyuru-merkezi/oidb', timeout=10)
+        r.encoding = 'utf-8'
+        soup = BeautifulSoup(r.text, 'html.parser')
+        
+        items = []
+        pattern = re.compile(r'duyuru-merkezi/oidb/\d{4}/\d{2}/\d{2}/\d+')
+        seen = set()
+        
+        for a in soup.find_all('a'):
+            href = a.get('href', '')
+            if pattern.search(href):
+                title = a.text.strip()
+                if not title:
+                    title = ' '.join(a.stripped_strings)
+                    
+                if len(title) > 5 and href not in seen:
+                    seen.add(href)
+                    # Try to find date from href
+                    date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', href)
+                    date_str = ""
+                    if date_match:
+                        date_str = f"{date_match.group(3)}.{date_match.group(2)}.{date_match.group(1)}"
+                        
+                    items.append({
+                        'title': title,
+                        'href': href,
+                        'date': date_str
+                    })
+                    
+                if len(items) >= 5: # Get latest 5 announcements
+                    break
+                    
+        if items:
+            ANNOUNCEMENTS_CACHE["data"] = items
+            ANNOUNCEMENTS_CACHE["last_updated"] = current_time
+            
+        return ANNOUNCEMENTS_CACHE["data"]
+    except Exception as e:
+        print(f"Error scraping announcements: {e}")
+        return ANNOUNCEMENTS_CACHE["data"]

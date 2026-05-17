@@ -496,7 +496,7 @@ body {
   margin-bottom: 24px;
 }
 
-.chat-input-wrapper input {
+.chat-input-wrapper input, .chat-input-wrapper textarea {
   flex-grow: 1;
   background: transparent;
   border: none;
@@ -504,6 +504,15 @@ body {
   color: var(--text-primary);
   font-family: var(--font-main);
   font-size: 15px;
+  line-height: 1.5;
+}
+
+.chat-input-wrapper textarea::-webkit-scrollbar {
+  width: 4px;
+}
+.chat-input-wrapper textarea::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
 }
 
 .send-btn {
@@ -1024,4 +1033,96 @@ body {
 @keyframes pulseGlow {
   0%, 100% { box-shadow: 0 0 10px rgba(2, 132, 199, 0.2); }
   50% { box-shadow: 0 0 25px rgba(2, 132, 199, 0.4); }
+}
+
+/* Source Insights / Citations */
+.sources-insights {
+  margin-top: 16px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sources-insights-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sources-chips-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.sources-chips-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.sources-chips-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 4px;
+}
+
+.source-chip {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  color: var(--text-secondary);
+}
+
+.source-chip:hover, .source-chip.active {
+  background-color: rgba(2, 132, 199, 0.1);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.source-snippet-card {
+  background-color: rgba(2, 132, 199, 0.03);
+  border: 1px solid rgba(2, 132, 199, 0.2);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  position: relative;
+  animation: fadeIn 0.3s ease;
+  border-left: 3px solid var(--accent-blue);
+}
+
+.source-snippet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.highlight-text {
+  background-color: rgba(255, 235, 59, 0.15);
+  color: #ffb300;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.light-theme .highlight-text {
+  background-color: rgba(255, 235, 59, 0.3);
+  color: #b45309;
 }
