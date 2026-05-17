@@ -203,7 +203,7 @@ function App() {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="brand">
-          <h1>Mevzuat Portalı</h1>
+          <h1>Öğrenci Rehberi</h1>
           <p>Başvuru ve Bilgi Sistemi</p>
         </div>
 
@@ -266,7 +266,7 @@ function App() {
               <div className="page-header">
                 <div>
                   <h2>Dilekçe İşlemleri</h2>
-                  <p>Akademik Mevzuat Portalı aracılığıyla resmi dilekçelerinizi oluşturun ve yönetin.</p>
+                  <p>Akademik Öğrenci Rehberi aracılığıyla resmi dilekçelerinizi oluşturun ve yönetin.</p>
                 </div>
                 <button className="new-chat-btn" style={{ background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', margin: 0, boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)' }} onClick={() => setIsScanModalOpen(true)}>
                   <FileText size={18} />
