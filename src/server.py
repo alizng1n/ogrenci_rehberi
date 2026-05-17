@@ -29,7 +29,7 @@ from src.models import Draft, Base
 # Create DB tables
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Akademik Mevzuat API")
+app = FastAPI(title="Öğrenci Rehberi API")
 
 # Setup CORS for local React development
 app.add_middleware(
