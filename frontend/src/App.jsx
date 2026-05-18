@@ -759,7 +759,6 @@ function App() {
             <div className="page-header">
               <div>
                 <h2>Gelen E-postalar</h2>
-                <p>İSTE Zimbra e-posta gelen kutunuz (otomatik sınıflandırma ile)</p>
               </div>
               {zimbraLoggedIn && (
                 <div style={{ display: 'flex', gap: '8px' }}>
