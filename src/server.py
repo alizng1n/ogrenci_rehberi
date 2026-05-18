@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import sys
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 import os
 import re
 import traceback

@@ -29,15 +29,16 @@ def get_rag_chain():
     # 2. Setup Retriever — k=12 for better document coverage
     retriever = vectorstore.as_retriever(search_kwargs={"k": 12})
     
-    # 3. Setup LLM — Google Gemini 2.5 Flash (Doğrudan Google API üzerinden, %100 Ücretsiz ve Gecikmesiz)
+    # 3. Setup LLM — Google Gemini 2.5 Flash via OpenRouter
     llm = ChatOpenAI(
-        model="gemini-2.5-flash", 
+        model="google/gemini-2.5-flash", 
         temperature=0,
         max_tokens=2000,
-        openai_api_key=os.environ.get("GOOGLE_API_KEY"),
-        openai_api_base="https://generativelanguage.googleapis.com/v1beta/openai/",
+        openai_api_key=os.environ.get("OPENROUTER_API_KEY"),
+        openai_api_base="https://openrouter.ai/api/v1",
         default_headers={
-            "X-Title": "Ogrenci Rehberi"
+            "X-Title": "Ogrenci Rehberi",
+            "HTTP-Referer": "http://localhost:8000"
         }
     )
     

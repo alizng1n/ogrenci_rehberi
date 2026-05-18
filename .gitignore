@@ -21,6 +21,9 @@ data/chroma/
 # Logs and databases
 *.log
 
+# Runtime cache
+data/semantic_cache.json
+
 # OS generated files
 .DS_Store
 Thumbs.db
