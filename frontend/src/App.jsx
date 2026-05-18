@@ -159,10 +159,11 @@ function App() {
       setZimbraEmails(inboxRes.data.emails);
       setZimbraStats(inboxRes.data.stats);
 
-      const academicEmails = inboxRes.data.emails.filter(e => e.category === 'academic');
-      if (academicEmails.length > 0) {
+      // Tüm e-postaları tara (academic + announcement) — ödev bildirimleri her kategoride olabilir
+      const relevantEmails = inboxRes.data.emails.filter(e => e.category === 'academic' || e.category === 'announcement');
+      if (relevantEmails.length > 0) {
         setDeadlinesLoading(true);
-        const reqEmails = academicEmails.slice(0, 10).map(e => ({
+        const reqEmails = relevantEmails.slice(0, 15).map(e => ({
           id: e.id,
           subject: e.subject,
           body: e.body || e.snippet,
@@ -171,13 +172,22 @@ function App() {
         try {
           const deadlinesRes = await axios.post('http://localhost:8000/api/zimbra/extract-deadlines', { emails: reqEmails });
           const newDeadlines = deadlinesRes.data.deadlines || [];
-          setZimbraDeadlines(newDeadlines);
-          localStorage.setItem('zimbraDeadlines', JSON.stringify(newDeadlines));
-        } catch (e) { console.error("Deadline extraction failed", e); }
+          if (newDeadlines.length > 0) {
+            setZimbraDeadlines(newDeadlines);
+            localStorage.setItem('zimbraDeadlines', JSON.stringify(newDeadlines));
+          } else if (deadlinesRes.data.error) {
+            // API hatası varsa (kota vb.) mevcut cache'i koru
+            console.warn('Deadline API hatası, cache korunuyor:', deadlinesRes.data.error);
+          } else {
+            // Gerçekten hiç deadline bulunamadı
+            setZimbraDeadlines([]);
+            localStorage.setItem('zimbraDeadlines', '[]');
+          }
+        } catch (e) {
+          // API tamamen başarısız olduysa mevcut cache'deki deadline'ları koru
+          console.error('Deadline extraction failed, keeping cache:', e);
+        }
         setDeadlinesLoading(false);
-      } else {
-        setZimbraDeadlines([]);
-        localStorage.setItem('zimbraDeadlines', '[]');
       }
     } catch(err) {
       setZimbraError(err.response?.data?.detail || 'E-postalar yüklenemedi.');
@@ -249,17 +259,35 @@ function App() {
     setIsLoading(true);
 
     let contextStr = `Aktif Sayfa: ${activeTab === 'dashboard' ? 'Ana Sayfa (Dilekçe Formu)' : activeTab === 'directory' ? 'Akademik Kadro Rehberi' : 'Gelen E-postalar'}\n`;
-    if (activeTab === 'directory' && personnel) {
-      const lightPersonnel = personnel.map(p => `${p.name} - ${p.title} (${p.department}) - ${p.email}`).join('\n');
-      contextStr += `Kadro Listesi (Kısa):\n${lightPersonnel.substring(0, 5000)}...\n`;
+    // Kadro bilgileri (her zaman gönder, sadece aktif tab'da değil)
+    if (personnel && personnel.length > 0) {
+      const lightPersonnel = personnel.map(p => `${p.name} - ${p.title || ''} (${p.department || ''}) - ${p.email || ''}`).join('\n');
+      contextStr += `Akademik Kadro Listesi:\n${lightPersonnel.substring(0, 6000)}\n`;
     }
+    // E-posta bilgileri (snippet dahil)
     if (zimbraEmails && zimbraEmails.length > 0) {
-      const lightEmails = zimbraEmails.map(e => `Gönderen: ${e.from_name || e.from_address}, Konu: ${e.subject}, Tarih: ${e.date}`).join('\n');
-      contextStr += `Kullanıcının E-postaları:\n${lightEmails.substring(0, 3000)}...\n`;
+      const lightEmails = zimbraEmails.map(e => `Gönderen: ${e.from_name || e.from_address}, Konu: ${e.subject}, Tarih: ${e.date}${e.snippet ? ', Özet: ' + e.snippet.substring(0, 120) : ''}`).join('\n');
+      contextStr += `Kullanıcının E-postaları (${zimbraEmails.length} adet):\n${lightEmails.substring(0, 5000)}\n`;
     }
+    // Ödev/Deadline bilgileri
     if (zimbraDeadlines && zimbraDeadlines.length > 0) {
-       const lightDeadlines = zimbraDeadlines.map(d => `Ödev/Görev: ${d.title}, Teslim Tarihi: ${d.deadline}`).join('\n');
-       contextStr += `Kullanıcının Yaklaşan Ödevleri / Teslim Tarihleri:\n${lightDeadlines}\n`;
+       const now = new Date();
+       const lightDeadlines = zimbraDeadlines.map(d => {
+         const dl = new Date(d.deadline);
+         const diffDays = Math.ceil((dl - now) / (1000 * 60 * 60 * 24));
+         const status = diffDays < 0 ? `${Math.abs(diffDays)} gün gecikmiş` : diffDays === 0 ? 'BUGÜN SON' : `${diffDays} gün kaldı`;
+         return `Ödev: ${d.title}, Teslim: ${d.deadline}, Durum: ${status}`;
+       }).join('\n');
+       contextStr += `Kullanıcının Yaklaşan Ödevleri:\n${lightDeadlines}\n`;
+    }
+    // Duyurular
+    if (announcements && announcements.length > 0) {
+      const lightAnn = announcements.map(a => `- ${a.title} (${a.date || 'tarih yok'})`).join('\n');
+      contextStr += `İSTE Güncel Duyuruları:\n${lightAnn}\n`;
+    }
+    // Kaynak dokümanlar
+    if (sources && sources.length > 0) {
+      contextStr += `Sistemde Yüklü Dokümanlar: ${sources.join(', ')}\n`;
     }
 
     try {
@@ -387,8 +415,11 @@ function App() {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="brand">
-          <h1>Öğrenci Rehberi</h1>
-          <p>Başvuru ve Bilgi Sistemi</p>
+          <img src="/iste_logo.png" alt="İSTE Logo" className="brand-logo" />
+          <div className="brand-text">
+            <h1>Öğrenci Rehberi</h1>
+            <p>Bilgi Sistemi</p>
+          </div>
         </div>
 
         {/* Home / Menu Button */}
@@ -519,7 +550,7 @@ function App() {
           )}
         </button>
 
-        {zimbraLoggedIn && (zimbraDeadlines.length > 0 || deadlinesLoading) && (
+        {zimbraLoggedIn && (
           <div style={{ marginBottom: '32px' }}>
             <h4 style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '12px', paddingLeft: '12px' }}>
               Yaklaşan Ödevler
@@ -527,6 +558,10 @@ function App() {
             {deadlinesLoading ? (
               <div style={{ padding: '12px', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Loader2 size={14} className="spinning" /> Analiz ediliyor...
+              </div>
+            ) : zimbraDeadlines.length === 0 ? (
+              <div style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', borderLeft: '3px solid var(--border-color)' }}>
+                Yaklaşan ödev bulunamadı.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -612,8 +647,8 @@ function App() {
                 </div>
               </div>
 
-              {/* Yaklaşan Ödevler Section (Dashboard) */}
-              {(zimbraDeadlines.length > 0 || deadlinesLoading) && (
+              {/* Yaklaşan Ödevler Section (Dashboard) - Zimbra oturumu açıkken her zaman gösterilir */}
+              {zimbraLoggedIn && (
                 <div className="cards-grid" style={{ marginBottom: '32px' }}>
                   <div className="dashboard-card" style={{ gridColumn: '1 / -1', padding: '0', overflow: 'hidden', borderLeft: '3px solid #f59e0b' }}>
                     <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -624,6 +659,10 @@ function App() {
                       {deadlinesLoading ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
                           <Loader2 size={16} className="spinning" /> Ödevler analiz ediliyor...
+                        </div>
+                      ) : zimbraDeadlines.length === 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '14px', padding: '8px 0' }}>
+                          <Hourglass size={16} style={{ opacity: 0.5 }} /> Yaklaşan ödev bulunamadı.
                         </div>
                       ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
@@ -972,9 +1011,7 @@ function App() {
               <div style={{ maxWidth: '420px', margin: '60px auto' }}>
                 <div className="dashboard-card" style={{ padding: '32px' }}>
                   <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-                    <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'linear-gradient(135deg, #0284c7, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                      <Lock size={24} color="#fff" />
-                    </div>
+                    <img src="/zimbra-logo.jpg" alt="İSTE E-Posta" style={{ height: '64px', objectFit: 'contain', margin: '0 auto 16px', display: 'block' }} />
                     <h3 style={{ margin: '0 0 6px', fontSize: '18px', color: 'var(--text-primary)' }}>Zimbra E-Posta Girişi</h3>
                     <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>İSTE e-posta hesabınızla giriş yapın</p>
                   </div>

@@ -67,17 +67,26 @@ body {
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 32px;
   padding: 0 8px;
 }
 
-.brand h1 {
+.brand-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.brand-text h1 {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.5px;
 }
 
-.brand p {
+.brand-text p {
   font-size: 11px;
   color: var(--text-secondary);
   text-transform: uppercase;
