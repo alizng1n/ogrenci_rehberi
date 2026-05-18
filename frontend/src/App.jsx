@@ -253,13 +253,13 @@ function App() {
       const lightPersonnel = personnel.map(p => `${p.name} - ${p.title} (${p.department}) - ${p.email}`).join('\n');
       contextStr += `Kadro Listesi (Kısa):\n${lightPersonnel.substring(0, 5000)}...\n`;
     }
-    if (activeTab === 'emails' && zimbraEmails) {
+    if (zimbraEmails && zimbraEmails.length > 0) {
       const lightEmails = zimbraEmails.map(e => `Gönderen: ${e.from_name || e.from_address}, Konu: ${e.subject}, Tarih: ${e.date}`).join('\n');
-      contextStr += `E-postalar:\n${lightEmails.substring(0, 3000)}...\n`;
-      if (zimbraDeadlines && zimbraDeadlines.length > 0) {
-         const lightDeadlines = zimbraDeadlines.map(d => `Ödev/Görev: ${d.title}, Teslim Tarihi: ${d.deadline}`).join('\n');
-         contextStr += `Yaklaşan Ödevler / Teslim Tarihleri:\n${lightDeadlines}\n`;
-      }
+      contextStr += `Kullanıcının E-postaları:\n${lightEmails.substring(0, 3000)}...\n`;
+    }
+    if (zimbraDeadlines && zimbraDeadlines.length > 0) {
+       const lightDeadlines = zimbraDeadlines.map(d => `Ödev/Görev: ${d.title}, Teslim Tarihi: ${d.deadline}`).join('\n');
+       contextStr += `Kullanıcının Yaklaşan Ödevleri / Teslim Tarihleri:\n${lightDeadlines}\n`;
     }
 
     try {
@@ -611,6 +611,54 @@ function App() {
                   <div className="stat-value purple">{stats.review}</div>
                 </div>
               </div>
+
+              {/* Yaklaşan Ödevler Section (Dashboard) */}
+              {(zimbraDeadlines.length > 0 || deadlinesLoading) && (
+                <div className="cards-grid" style={{ marginBottom: '32px' }}>
+                  <div className="dashboard-card" style={{ gridColumn: '1 / -1', padding: '0', overflow: 'hidden', borderLeft: '3px solid #f59e0b' }}>
+                    <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <Hourglass size={18} style={{ color: '#f59e0b' }} />
+                      <h3 style={{ fontSize: '16px', fontWeight: '600', margin: 0 }}>Yaklaşan Ödevler & Görevler</h3>
+                    </div>
+                    <div style={{ padding: '16px 24px' }}>
+                      {deadlinesLoading ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                          <Loader2 size={16} className="spinning" /> Ödevler analiz ediliyor...
+                        </div>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                          {zimbraDeadlines.map((task, idx) => {
+                            const deadlineDate = new Date(task.deadline);
+                            const now = new Date();
+                            const diffTime = deadlineDate - now;
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            
+                            let statusColor = '#10b981';
+                            let statusText = `${diffDays} gün kaldı`;
+                            
+                            if (diffDays === 0) { statusColor = '#f59e0b'; statusText = 'Bugün son!'; }
+                            else if (diffDays < 0) { statusColor = '#ef4444'; statusText = `${Math.abs(diffDays)} gün gecikti`; }
+                            else if (diffDays <= 3) { statusColor = '#f59e0b'; }
+
+                            return (
+                              <div key={idx} onClick={() => handleDeadlineClick(task)} style={{
+                                background: 'var(--bg-sidebar)', borderRadius: '8px', padding: '12px 16px',
+                                borderLeft: `3px solid ${statusColor}`, cursor: 'pointer', transition: 'all 0.2s',
+                                display: 'flex', flexDirection: 'column', gap: '6px'
+                              }} onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'} onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}>
+                                <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>{task.title}</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: statusColor, fontWeight: '500' }}>
+                                  <Hourglass size={14} /> {statusText}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Announcements Section */}
               <div className="cards-grid" style={{ marginBottom: '32px' }}>
