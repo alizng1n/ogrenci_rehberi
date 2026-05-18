@@ -45,6 +45,8 @@ function App() {
   const [zimbraStats, setZimbraStats] = useState({ total: 0, academic: 0, announcement: 0, unread: 0 });
   const [emailFilter, setEmailFilter] = useState('all'); // 'all' | 'academic' | 'announcement'
   const [showPassword, setShowPassword] = useState(false);
+  const [selectedEmail, setSelectedEmail] = useState(null);
+  const [emailDetailLoading, setEmailDetailLoading] = useState(false);
 
   const messagesEndRef = useRef(null);
 
@@ -124,6 +126,25 @@ function App() {
       }
     };
     fetchData();
+
+    // Check Zimbra Session
+    const checkZimbraSession = async () => {
+      const savedEmail = localStorage.getItem('zimbraEmail');
+      if (savedEmail) {
+        try {
+          const res = await axios.post('http://localhost:8000/api/zimbra/check-session', { email: savedEmail, password: '' });
+          if (res.data.valid) {
+            setZimbraLoggedIn(true);
+          } else {
+            localStorage.removeItem('zimbraEmail');
+            setZimbraEmail('');
+          }
+        } catch (err) {
+          console.error("Zimbra session check failed", err);
+        }
+      }
+    };
+    checkZimbraSession();
   }, []);
 
   useEffect(() => {
@@ -548,7 +569,7 @@ function App() {
 
             </div>
           </>
-          ) : (
+          ) : activeTab === 'directory' ? (
              <div className="content-wrapper" style={{ paddingTop: '48px' }}>
                 <div className="page-header">
                   <div>
@@ -738,7 +759,7 @@ function App() {
             <div className="page-header">
               <div>
                 <h2>Gelen E-postalar</h2>
-                <p>İSTE Zimbra e-posta gelen kutunuz — otomatik sınıflandırma ile</p>
+                <p>İSTE Zimbra e-posta gelen kutunuz (otomatik sınıflandırma ile)</p>
               </div>
               {zimbraLoggedIn && (
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -858,6 +879,18 @@ function App() {
                         borderLeft: email.category === 'academic' ? '3px solid #10b981' : email.category === 'announcement' ? '3px solid #f59e0b' : '3px solid var(--border-color)',
                         opacity: email.is_read ? 0.75 : 1
                       }}
+                      onClick={async () => {
+                        setEmailDetailLoading(true);
+                        setSelectedEmail(email); // temporary set for UI feedback
+                        try {
+                          const res = await axios.post('http://localhost:8000/api/zimbra/message', { email: zimbraEmail, msg_id: email.id });
+                          setSelectedEmail({...email, ...res.data});
+                        } catch (err) {
+                          console.error("Failed to load message", err);
+                          // Still show partial email if fails
+                        }
+                        setEmailDetailLoading(false);
+                      }}
                       onMouseOver={(e) => { e.currentTarget.style.transform = 'translateX(4px)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.08)'; }}
                       onMouseOut={(e) => { e.currentTarget.style.transform = 'translateX(0)'; e.currentTarget.style.boxShadow = ''; }}
                       >
@@ -892,9 +925,52 @@ function App() {
                     )}
                   </div>
                 )}
+
+                {/* Email Reader Modal */}
+                {selectedEmail && (
+                  <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', padding: '20px'
+                  }}>
+                    <div className="dashboard-card" style={{
+                      width: '100%', maxWidth: '800px', maxHeight: '90vh',
+                      background: 'var(--bg-panel)', display: 'flex', flexDirection: 'column',
+                      overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,0.2)'
+                    }}>
+                      <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: 'var(--text-primary)' }}>{selectedEmail.subject}</h3>
+                          <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                            <span style={{ fontWeight: '600' }}>Gönderen: {selectedEmail.from_name || selectedEmail.from_address}</span>
+                            <span>Tarih: {selectedEmail.date}</span>
+                          </div>
+                        </div>
+                        <button onClick={() => setSelectedEmail(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', transition: 'background 0.2s' }}
+                          onMouseOver={e => e.currentTarget.style.background = 'rgba(0,0,0,0.05)'}
+                          onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                        ><X size={24} /></button>
+                      </div>
+                      
+                      <div style={{ padding: '24px', overflowY: 'auto', flex: 1, background: 'var(--bg-main)' }}>
+                        {emailDetailLoading ? (
+                          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: 'var(--text-secondary)' }}>
+                            <Loader2 className="spinning" size={32} />
+                          </div>
+                        ) : (
+                          <div 
+                            style={{ color: 'var(--text-primary)', fontSize: '14px', lineHeight: '1.6', fontFamily: 'var(--font-sans)', wordBreak: 'break-word' }}
+                            dangerouslySetInnerHTML={{ __html: selectedEmail.body || '<i>İçerik bulunamadı veya yüklenemedi.</i>' }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
+        ) : null
         ) : (
           /* Chat Interface */
           <div className="chat-container">

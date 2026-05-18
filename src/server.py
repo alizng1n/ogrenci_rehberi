@@ -682,7 +682,7 @@ async def get_person_detail(url: str):
 
 # --- ZIMBRA E-POSTA ENTEGRASYONu ---
 
-from src.zimbra_client import zimbra_login, fetch_inbox
+from src.zimbra_client import zimbra_login, fetch_inbox, fetch_message
 
 class ZimbraLoginRequest(BaseModel):
     email: str
@@ -696,15 +696,29 @@ async def zimbra_login_endpoint(req: ZimbraLoginRequest):
     """Zimbra'ya giriş yapar ve token döndürür."""
     try:
         token = zimbra_login(req.email, req.password)
-        # Token'ı session olarak sakla
         _zimbra_sessions[req.email] = token
         return {"success": True, "email": req.email}
     except Exception as e:
         raise HTTPException(status_code=401, detail=str(e))
 
+@app.post("/api/zimbra/check-session")
+async def zimbra_check_session(req: ZimbraLoginRequest):
+    """Mevcut oturumun geçerli olup olmadığını kontrol eder."""
+    token = _zimbra_sessions.get(req.email)
+    if not token:
+        return {"valid": False}
+    # Token'ın hala çalışıp çalışmadığını basit bir sorguyla test et
+    try:
+        fetch_inbox(token, limit=1, offset=0)
+        return {"valid": True}
+    except:
+        if req.email in _zimbra_sessions:
+            del _zimbra_sessions[req.email]
+        return {"valid": False}
+
 class ZimbraInboxRequest(BaseModel):
     email: str
-    limit: int = 50
+    limit: int = 100
     offset: int = 0
 
 @app.post("/api/zimbra/inbox")
@@ -717,7 +731,6 @@ async def zimbra_inbox_endpoint(req: ZimbraInboxRequest):
     try:
         emails = fetch_inbox(token, limit=req.limit, offset=req.offset)
         
-        # İstatistikleri hesapla
         academic_count = sum(1 for e in emails if e['category'] == 'academic')
         announcement_count = sum(1 for e in emails if e['category'] == 'announcement')
         unread_count = sum(1 for e in emails if not e['is_read'])
@@ -732,10 +745,27 @@ async def zimbra_inbox_endpoint(req: ZimbraInboxRequest):
             }
         }
     except Exception as e:
-        # Token süresi dolmuş olabilir
         if "auth" in str(e).lower():
-            del _zimbra_sessions[req.email]
+            if req.email in _zimbra_sessions:
+                del _zimbra_sessions[req.email]
             raise HTTPException(status_code=401, detail="Oturum süresi doldu, lütfen tekrar giriş yapın.")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ZimbraMessageRequest(BaseModel):
+    email: str
+    msg_id: str
+
+@app.post("/api/zimbra/message")
+async def zimbra_message_endpoint(req: ZimbraMessageRequest):
+    """Tek bir e-postanın tam içeriğini çeker."""
+    token = _zimbra_sessions.get(req.email)
+    if not token:
+        raise HTTPException(status_code=401, detail="Önce giriş yapmalısınız.")
+    
+    try:
+        msg = fetch_message(token, req.msg_id)
+        return msg
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/zimbra/logout")
@@ -744,3 +774,4 @@ async def zimbra_logout_endpoint(req: ZimbraLoginRequest):
     if req.email in _zimbra_sessions:
         del _zimbra_sessions[req.email]
     return {"success": True}
+

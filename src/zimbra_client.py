@@ -35,9 +35,14 @@ def _load_academic_emails():
 # Duyuru kaynağı olarak bilinen e-posta kalıpları
 ANNOUNCEMENT_PATTERNS = [
     "duyuru@", "bilgi@", "info@", "announcement@",
-    "noreply@", "no-reply@", "sistem@", "system@",
-    "haber@", "bulten@", "ogrenci@", "destek@",
+    "no-reply@", "sistem@", "system@",
+    "haber@", "bulten@", "destek@",
     "ogrenciisleri@", "kayit@", "sinav@"
+]
+
+# Akademik kaynak olarak sayılacak özel adresler
+ACADEMIC_SPECIAL = [
+    "ubom.noreply@iste.edu.tr"
 ]
 
 def classify_email(from_address: str, academic_emails: set) -> str:
@@ -55,14 +60,18 @@ def classify_email(from_address: str, academic_emails: set) -> str:
     if match:
         addr = match.group(1)
     
+    # Özel akademik adresler (ubom.noreply vb.)
+    if addr in ACADEMIC_SPECIAL:
+        return 'academic'
+    
+    # Akademisyen listesinde mi? (önce kontrol et)
+    if addr in academic_emails:
+        return 'academic'
+    
     # Duyuru kalıplarını kontrol et
     for pattern in ANNOUNCEMENT_PATTERNS:
         if pattern in addr:
             return 'announcement'
-    
-    # Akademisyen listesinde mi?
-    if addr in academic_emails:
-        return 'academic'
     
     # iste.edu.tr domaini ama listede değilse → muhtemelen idari/duyuru
     if addr.endswith('@iste.edu.tr'):
@@ -88,7 +97,7 @@ def zimbra_login(email: str, password: str) -> str:
         raise Exception(f"Zimbra giriş başarısız: {str(e)}")
 
 
-def fetch_inbox(token: str, limit: int = 50, offset: int = 0) -> list:
+def fetch_inbox(token: str, limit: int = 100, offset: int = 0) -> list:
     """
     Zimbra gelen kutusundaki e-postaları çeker ve sınıflandırır.
     Returns list of email dicts.
@@ -104,7 +113,8 @@ def fetch_inbox(token: str, limit: int = 50, offset: int = 0) -> list:
             'limit': str(limit),
             'offset': str(offset),
             'sortBy': 'dateDesc',
-            'types': 'message'
+            'types': 'message',
+            'fetch': '1'
         },
         'urn:zimbraMail'
     )
@@ -158,6 +168,34 @@ def fetch_inbox(token: str, limit: int = 50, offset: int = 0) -> list:
         # Sınıflandırma
         category = classify_email(from_addr, academic_emails)
         
+        # E-posta gövdesini (body) çıkar
+        body = ''
+        mp = msg.get('mp', {})
+        if isinstance(mp, dict):
+            mp = [mp]
+        if isinstance(mp, list):
+            for part in mp:
+                # text/plain veya text/html content
+                ct = part.get('ct', '')
+                if ct == 'text/plain' and part.get('content'):
+                    body = part.get('content', '')
+                    break
+                elif ct == 'text/html' and part.get('content'):
+                    body = part.get('content', '')
+                # İç içe multipart kontrolü
+                sub_parts = part.get('mp', [])
+                if isinstance(sub_parts, dict):
+                    sub_parts = [sub_parts]
+                if isinstance(sub_parts, list):
+                    for sp in sub_parts:
+                        sct = sp.get('ct', '')
+                        if sct == 'text/plain' and sp.get('content'):
+                            body = sp.get('content', '')
+                            break
+                        elif sct == 'text/html' and sp.get('content'):
+                            if not body:
+                                body = sp.get('content', '')
+        
         emails.append({
             'id': msg.get('id', ''),
             'subject': subject,
@@ -167,7 +205,63 @@ def fetch_inbox(token: str, limit: int = 50, offset: int = 0) -> list:
             'date_ms': date_ms,
             'is_read': is_read,
             'category': category,
-            'snippet': msg.get('fr', '')[:150] if msg.get('fr') else ''
+            'snippet': msg.get('fr', '')[:150] if msg.get('fr') else '',
+            'body': body
         })
     
     return emails
+
+
+def fetch_message(token: str, msg_id: str) -> dict:
+    """
+    Tek bir e-postanın tam içeriğini çeker.
+    """
+    comm = Communication(ZIMBRA_SOAP_URL)
+    msg_request = comm.gen_request(token=token)
+    msg_request.add_request(
+        'GetMsgRequest',
+        {
+            'm': {'id': msg_id, 'html': '1'}
+        },
+        'urn:zimbraMail'
+    )
+    
+    response = comm.send_request(msg_request)
+    
+    if response.is_fault():
+        raise Exception(f"Mesaj getirme hatası: {response.get_fault_message()}")
+    
+    result = response.get_response()
+    msg = result.get('GetMsgResponse', {}).get('m', {})
+    
+    # Body çıkar
+    body = ''
+    mp = msg.get('mp', {})
+    if isinstance(mp, dict):
+        mp = [mp]
+    if isinstance(mp, list):
+        for part in mp:
+            ct = part.get('ct', '')
+            if ct == 'text/html' and part.get('content'):
+                body = part.get('content', '')
+                break
+            elif ct == 'text/plain' and part.get('content'):
+                body = part.get('content', '')
+            sub_parts = part.get('mp', [])
+            if isinstance(sub_parts, dict):
+                sub_parts = [sub_parts]
+            if isinstance(sub_parts, list):
+                for sp in sub_parts:
+                    sct = sp.get('ct', '')
+                    if sct == 'text/html' and sp.get('content'):
+                        body = sp.get('content', '')
+                        break
+                    elif sct == 'text/plain' and sp.get('content'):
+                        if not body:
+                            body = sp.get('content', '')
+    
+    return {
+        'id': msg.get('id', ''),
+        'subject': msg.get('su', ''),
+        'body': body
+    }
