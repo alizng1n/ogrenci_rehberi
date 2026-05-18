@@ -133,8 +133,232 @@ class ChatRequest(BaseModel):
     history: list[Message] = []
     context: str = ""
 
+# ═══════════════════════════════════════════════════════
+# Akıllı Semantik Önbellek (Semantic Cache) Sistemi
+# ═══════════════════════════════════════════════════════
+import numpy as np
+import json
+import os
+import time
+
+class SemanticCache:
+    """Anlamsal benzerliğe dayalı akıllı soru-cevap önbellek sistemi (Kalıcı - Disk tabanlı)."""
+    
+    def __init__(self, similarity_threshold=0.85, max_entries=200):
+        self.entries = []  # Her giriş: {embedding, question, answer, sources, keywords, created_at, last_verified}
+        self.similarity_threshold = similarity_threshold
+        self.max_entries = max_entries
+        self._embedder = None
+        
+        # Dosya yolu
+        self.cache_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "semantic_cache.json")
+        
+        # Zaman hassas sorular için kısa TTL (saniye cinsinden)
+        self.time_sensitive_ttl = 3600       # 1 saat
+        self.general_ttl = 86400 * 7         # 7 gün (kalıcı olmasını istedikleri için uzun tuttuk)
+        
+        # Zamana duyarlı konuları tespit eden kelimeler
+        self.time_sensitive_words = [
+            "bugün", "yarın", "dün", "benim", "mail", "e-posta", 
+            "ödevim", "kaç ödev", "kaç gün", "duyuru", "son tarih"
+        ]
+        
+        # Cache'e kaydedilmemesi gereken belirsiz/zayıf cevap kalıpları
+        self.weak_answer_patterns = [
+            "bilgim yok", "bulunamadı", "bilinmiyor", "emin değilim",
+            "hata oluştu", "tekrar deneyin", "yoğun"
+        ]
+        
+        # Diskten yükle
+        self._load_from_disk()
+    
+    def _load_from_disk(self):
+        """Cache verilerini diskten yükler."""
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                    self.entries = json.load(f)
+                print(f"📁 Semantik Cache: {len(self.entries)} kayıt diskten yüklendi.")
+            except Exception as e:
+                print(f"⚠️ Cache dosyası okunamadı: {e}")
+                self.entries = []
+                
+    def _save_to_disk(self):
+        """Cache verilerini diske yazar."""
+        try:
+            with open(self.cache_file, 'w', encoding='utf-8') as f:
+                json.dump(self.entries, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"⚠️ Cache diske yazılamadı: {e}")
+    
+    @property
+    def embedder(self):
+        """Embedding modelini lazy-load et (ilk kullanımda yükle)."""
+        if self._embedder is None:
+            from langchain_huggingface import HuggingFaceEmbeddings
+            self._embedder = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+            )
+            print("✅ Semantik Cache: Embedding modeli yüklendi.")
+        return self._embedder
+    
+    def _cosine_similarity(self, vec_a, vec_b):
+        """İki vektör arasındaki kosinüs benzerliğini hesapla."""
+        a = np.array(vec_a)
+        b = np.array(vec_b)
+        dot = np.dot(a, b)
+        norm = np.linalg.norm(a) * np.linalg.norm(b)
+        return dot / norm if norm > 0 else 0.0
+    
+    def _extract_keywords(self, text):
+        """Sorgudan anahtar kelimeler çıkar."""
+        stop_words = {"ne", "nedir", "nerede", "nasıl", "kim", "hangi", "kaç", 
+                      "mi", "mı", "mu", "mü", "bir", "bu", "şu", "o", "ve", 
+                      "ile", "için", "de", "da", "den", "dan", "var", "yok",
+                      "hakkında", "bilgi", "ver", "söyle", "anlat", "merhaba"}
+        words = text.strip().lower().split()
+        return [w for w in words if len(w) > 2 and w not in stop_words]
+    
+    def _is_time_sensitive(self, question):
+        """Sorunun zamana duyarlı olup olmadığını kontrol et."""
+        q_lower = question.lower()
+        return any(w in q_lower for w in self.time_sensitive_words)
+    
+    def _is_weak_answer(self, answer):
+        """Cevabın belirsiz/zayıf olup olmadığını kontrol et."""
+        a_lower = answer.lower()
+        return any(p in a_lower for p in self.weak_answer_patterns)
+    
+    def _get_ttl(self, question):
+        """Soruya uygun TTL (yaşam süresi) belirle."""
+        if self._is_time_sensitive(question):
+            return self.time_sensitive_ttl
+        return self.general_ttl
+    
+    def lookup(self, question):
+        """
+        Semantik benzerlik ile cache'de arama yap.
+        Eşleşme bulunursa (answer, sources) döner, bulunamazsa None döner.
+        """
+        if not self.entries:
+            return None
+        
+        # Zamana duyarlı sorular cache'ten ALINMAZ
+        if self._is_time_sensitive(question):
+            print(f"⏭️  CACHE SKIP: Zamana duyarlı soru, cache atlanıyor.")
+            return None
+        
+        try:
+            query_embedding = self.embedder.embed_query(question)
+        except Exception as e:
+            print(f"⚠️  Cache embedding hatası: {e}")
+            return None
+        
+        best_match = None
+        best_similarity = 0.0
+        now = time.time()
+        
+        for entry in self.entries:
+            # Freshness kontrolü — süresi dolan girişleri atla
+            ttl = self._get_ttl(entry["question"])
+            if now - entry["created_at"] > ttl:
+                continue
+            
+            similarity = self._cosine_similarity(query_embedding, entry["embedding"])
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_match = entry
+        
+        if best_match and best_similarity >= self.similarity_threshold:
+            best_match["last_verified"] = now  # Son erişim zamanını güncelle
+            print(f"⚡ CACHE HIT (benzerlik: {best_similarity:.2f}): '{question}' → '{best_match['question']}'")
+            return {
+                "answer": best_match["answer"],
+                "sources": best_match["sources"]
+            }
+        
+        if best_match:
+            print(f"❌ CACHE MISS (en yakın benzerlik: {best_similarity:.2f}, eşik: {self.similarity_threshold})")
+        return None
+    
+    def store(self, question, answer, sources):
+        """Yeni bir soru-cevap çiftini cache'e kaydet."""
+        # Zayıf/belirsiz cevapları kaydetme
+        if self._is_weak_answer(answer):
+            print(f"🚫 CACHE SKIP: Zayıf cevap kaydedilmiyor.")
+            return
+        
+        # Çok kısa cevapları kaydetme (muhtemelen sadece "Merhaba" gibi)
+        if len(answer.strip()) < 20:
+            return
+        
+        try:
+            embedding = self.embedder.embed_query(question)
+        except Exception as e:
+            print(f"⚠️  Cache store embedding hatası: {e}")
+            return
+        
+        now = time.time()
+        keywords = self._extract_keywords(question)
+        
+        # Aynı sorunun zaten cache'te olup olmadığını kontrol et (güncelle)
+        for i, entry in enumerate(self.entries):
+            sim = self._cosine_similarity(embedding, entry["embedding"])
+            if sim >= 0.95:  # Neredeyse aynı soru → güncelle
+                self.entries[i] = {
+                    "embedding": embedding,
+                    "question": question,
+                    "answer": answer,
+                    "sources": sources,
+                    "keywords": keywords,
+                    "created_at": now,
+                    "last_verified": now
+                }
+                print(f"🔄 CACHE UPDATE: '{question}' güncellendi.")
+                self._save_to_disk()
+                return
+        
+        # Yeni giriş ekle
+        self.entries.append({
+            "embedding": embedding,
+            "question": question,
+            "answer": answer,
+            "sources": sources,
+            "keywords": keywords,
+            "created_at": now,
+            "last_verified": now
+        })
+        print(f"💾 CACHE STORE: '{question}' ({len(self.entries)}/{self.max_entries})")
+        
+        # Max kapasiteyi aşarsa en eski girişi sil
+        if len(self.entries) > self.max_entries:
+            self.entries.pop(0)
+            
+        self._save_to_disk()
+    
+    def invalidate_stale(self):
+        """Süresi dolmuş tüm girişleri temizle."""
+        now = time.time()
+        before = len(self.entries)
+        self.entries = [
+            e for e in self.entries 
+            if now - e["created_at"] <= self._get_ttl(e["question"])
+        ]
+        removed = before - len(self.entries)
+        if removed > 0:
+            print(f"🧹 CACHE CLEANUP: {removed} eski giriş silindi.")
+            self._save_to_disk()
+
+# Global semantik cache örneği
+semantic_cache = SemanticCache(similarity_threshold=0.85, max_entries=200)
+
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
+    # 1. Semantik Önbellek (Cache) Kontrolü
+    cached_result = semantic_cache.lookup(req.message)
+    if cached_result:
+        return cached_result
+
     rag_chain = get_cached_rag_chain()
     if not rag_chain:
         raise HTTPException(status_code=500, detail="RAG zinciri başlatılamadı. Lütfen veritabanının hazır olduğundan emin olun.")
@@ -154,6 +378,36 @@ async def chat_endpoint(req: ChatRequest):
     final_input = req.message
     if req.context:
         final_input = f"[Arayüz Bağlamı / Mevcut Sayfa Verileri:\n{req.context}]\n\nSoru: {req.message}"
+
+    # --- Sunucu Taraflı Veri Zenginleştirme ---
+    server_context_parts = []
+    
+    # 1. Duyurular (cache'den)
+    if ANNOUNCEMENTS_CACHE.get("data"):
+        ann_lines = [f"- {a['title']} ({a.get('date', 'tarih yok')}) → {a.get('href', '')}" for a in ANNOUNCEMENTS_CACHE["data"]]
+        server_context_parts.append("Güncel İSTE Duyuruları:\n" + "\n".join(ann_lines))
+    
+    # 2. Sistemde yüklü doküman listesi ve Takvim Verileri
+    raw_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "raw")
+    if os.path.exists(raw_dir):
+        doc_files = [f for f in os.listdir(raw_dir) if f.endswith(('.pdf', '.txt', '.docx'))]
+        if doc_files:
+            server_context_parts.append("Sistemde Yüklü Doküman İsimleri:\n" + "\n".join([f"- {f}" for f in doc_files]))
+            
+        # Takvim/Sınav verilerini metin olarak doğrudan enjekte et (Tablolar RAG'dan kaçabiliyor)
+        takvim_files = [f for f in doc_files if f.endswith('.txt') and 'takvim' in f.lower()]
+        for t_file in takvim_files:
+            t_path = os.path.join(raw_dir, t_file)
+            try:
+                with open(t_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    # LLM token limitini korumak için ilk 8000 karakterini alalım
+                    server_context_parts.append(f"--- {t_file} İÇERİĞİ ---\n{content[:8000]}")
+            except Exception as e:
+                pass
+                
+    if server_context_parts:
+        final_input = final_input + "\n\n[Sunucu Ek Verileri:\n" + "\n\n".join(server_context_parts) + "]"
         
     for attempt in range(max_retries):
         try:
@@ -197,22 +451,59 @@ async def chat_endpoint(req: ChatRequest):
 
     answer = response.get("answer") if isinstance(response, dict) else response["answer"]
     
-    # Check for tags
-    used_mevzuat = "[KAYNAK:MEVZUAT]" in answer
-    used_kadro = "[KAYNAK:KADRO]" in answer
+    # --- Akıllı Kaynak Etiket Ayrıştırma ---
+    # Yeni format: [KAYNAK:MEVZUAT:dosya_adı|Neden kullanıldı/kesit] ve [KAYNAK:KADRO]
+    import re as re_module
     
-    # Remove tags from final output
+    # AI'nin belirttiği spesifik dosya isimlerini ve kesitleri yakala
+    # (Eski formatsız veya kesitsiz gelenleri de yakalamak için | kısmı opsiyonel yapıldı)
+    ai_specified_sources = re_module.findall(r'\[KAYNAK:MEVZUAT:([^\|\]]+)(?:\|([^\]]+))?\]', answer)
+    used_kadro = "[KAYNAK:KADRO]" in answer
+    used_mevzuat_generic = "[KAYNAK:MEVZUAT]" in answer  # Eski format uyumluluğu
+    
+    # Tüm kaynak etiketlerini cevaptan temizle
+    answer = re_module.sub(r'\[KAYNAK:MEVZUAT:[^\]]*\]', '', answer)
     answer = answer.replace("[KAYNAK:MEVZUAT]", "").replace("[KAYNAK:KADRO]", "").strip()
 
     source_docs = []
+    seen_sources = set()  # Tekrar eden kaynakları engelle
     
-    if used_mevzuat:
+    if ai_specified_sources:
+        # ai_specified_sources listesi [(dosya_adi, kesit), (dosya_adi, kesit)] şeklinde döner
+        for specified, snippet in ai_specified_sources:
+            specified = specified.strip()
+            snippet = snippet.strip() if snippet else "Bu kaynaktan bilgi kullanılmıştır."
+            
+            # Context'ten orijinal sayfayı bul (eğer varsa)
+            matched_page = "?"
+            for doc in response.get("context", []):
+                doc_source = doc.metadata.get("source", "")
+                doc_basename = os.path.basename(doc_source) if doc_source else ""
+                
+                if specified.lower() in doc_basename.lower() or doc_basename.lower() in specified.lower():
+                    matched_page = doc.metadata.get("page", "?")
+                    break
+                    
+            if specified not in seen_sources:
+                seen_sources.add(specified)
+                source_docs.append({
+                    "source": specified,
+                    "page": matched_page,
+                    "content": snippet
+                })
+    
+    elif used_mevzuat_generic:
+        # Eski format uyumluluğu: Tüm context dokümanlarını göster (ama tekrarları kaldır)
         for doc in response.get("context", []):
-            source_docs.append({
-                "source": doc.metadata.get("source", "Bilinmiyor"),
-                "page": doc.metadata.get("page", "?"),
-                "content": doc.page_content[:200] + "..."
-            })
+            doc_source = doc.metadata.get("source", "Bilinmiyor")
+            doc_basename = os.path.basename(doc_source)
+            if doc_basename not in seen_sources:
+                seen_sources.add(doc_basename)
+                source_docs.append({
+                    "source": doc_basename,
+                    "page": doc.metadata.get("page", "?"),
+                    "content": doc.page_content[:200] + "..."
+                })
             
     if used_kadro:
         source_docs.append({
@@ -221,10 +512,15 @@ async def chat_endpoint(req: ChatRequest):
             "content": "İSTE Güncel Personel, İletişim ve Ofis Saatleri Rehberi"
         })
 
-    return {
+    final_response = {
         "answer": answer,
         "sources": source_docs
     }
+    
+    # 2. Semantik Önbelleğe Kaydetme
+    semantic_cache.store(req.message, answer, source_docs)
+
+    return final_response
 
 # --- DOCUMENT SCAN & PDF GENERATION ENDPOINTS ---
 
@@ -768,10 +1064,7 @@ class DeadlineExtractRequest(BaseModel):
 
 @app.post("/api/zimbra/extract-deadlines")
 async def extract_deadlines(req: DeadlineExtractRequest):
-    """E-postalardaki tarihleri (deadline) yapay zeka ile analiz eder."""
-    if not gemini_client:
-        return {"deadlines": []}
-    
+    """E-postalardaki tarihleri (deadline) yapay zeka ile analiz eder. Önce OpenRouter, sonra Gemini dener."""
     if not req.emails:
         return {"deadlines": []}
         
@@ -780,46 +1073,132 @@ async def extract_deadlines(req: DeadlineExtractRequest):
     # Prepare text for LLM
     emails_text = ""
     for e in req.emails:
-        # Sadece ilk 1000 karakteri al, token tasarrufu
         clean_body = re.sub(r'<[^>]+>', ' ', e.body[:1500])
         emails_text += f"ID: {e.id}\nTarih: {e.date}\nKonu: {e.subject}\nİçerik: {clean_body}\n---\n"
         
-    prompt = f"""
-Şu anki sistem zamanı: {current_time}
+    prompt_text = f"""Şu anki sistem zamanı: {current_time}
 
-Aşağıdaki e-postaları analiz et. Bu e-postalardaki önemli "Son Teslim Tarihi" (deadline), "Sınav Tarihi", "Ödev Teslim" gibi akademik görev tarihlerini tespit et.
-Eğer net bir tarih veya zaman belirtilmişse (örneğin 'Çarşamba 23:59', '20 Mayıs' vb.) e-postanın gönderildiği 'Tarih' bilgisini baz alarak bu tarihin tam ISO 8601 formatını (YYYY-MM-DDTHH:MM:SS) hesapla.
+Aşağıdaki e-postaları dikkatlice analiz et. YALNIZCA KESİN VE ZORUNLU BİR TESLİM TARİHİ (DEADLINE), SINAV TARİHİ VEYA ÖDEV TESLİMİ içeren e-postaları tespit et.
+
+ÇOK ÖNEMLİ KURALLAR (YANLIŞ POZİTİF ÖNLEME):
+1. "Etkinlik", "duyuru", "bilgilendirme", "staj bilgilendirmesi" gibi ödev/sınav OLMAYAN, sadece bilgi veren e-postaları KESİNLİKLE YOK SAY ve listeye alma.
+2. Yalnızca "son başvuru", "teslim tarihi", "deadline", "due date", "sınav tarihi" gibi kesin teslim/sınav yükümlülüğü belirten ifadeleri dikkate al. Net bir teslim tarihi yoksa listeye ekleme.
+3. Eğer net bir tarih veya zaman belirtilmişse e-postanın gönderildiği 'Tarih' bilgisini baz alarak bu tarihin tam ISO 8601 formatını (YYYY-MM-DDTHH:MM:SS) hesapla.
+4. E-posta içeriğinde bir bağlantı (URL) veya UBÖM yönlendirme linki varsa bunu tespit et (sadece URL kısmını al).
 
 Lütfen sadece aşağıdaki JSON dizisi formatında yanıt ver, hiçbir ekstra metin ekleme:
 [
   {{
     "email_id": "ilgili_eposta_id",
     "title": "Kısa ve öz görev başlığı (örn: Sayısal Görüntü İşleme Ödevi)",
-    "deadline": "YYYY-MM-DDTHH:MM:SS"
+    "deadline": "YYYY-MM-DDTHH:MM:SS",
+    "link": "Varsa ödevin/duyurunun linki (UBÖM linki vb.), yoksa boş string bırak"
   }}
 ]
 
-Eğer hiçbir e-postada teslim tarihi yoksa sadece boş bir dizi dön: []
+Eğer geçerli bir ödev/teslim tarihi yoksa sadece boş bir dizi dön: []
 
 E-Postalar:
-{emails_text}
-"""
-    try:
-        response = gemini_client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=prompt
-        )
-        
-        response_text = response.text
+{emails_text}"""
+
+    def _parse_deadlines(response_text: str):
+        """JSON dizisini response text'ten çıkar ve tekilleştir (deduplication)."""
         match = re.search(r"\[.*\]", response_text, re.DOTALL)
         if match:
-            json_str = match.group(0)
-            deadlines = json.loads(json_str)
-            return {"deadlines": deadlines}
-        return {"deadlines": []}
-    except Exception as e:
-        print("Extract deadlines error:", e)
-        return {"deadlines": []}
+            try:
+                deadlines = json.loads(match.group(0))
+                unique_deadlines = {}
+                for d in deadlines:
+                    # Link'ten query parametrelerini temizleyerek normalize et (session id vb. olabilir)
+                    link = d.get("link", "").strip()
+                    if link and "?" in link:
+                        link = link.split("?")[0]
+                        
+                    # Başlığı normalize et
+                    title = d.get("title", "").strip().lower()
+                    
+                    # Öncelik linkte, link yoksa başlığa göre tekilleştir
+                    key = link if len(link) > 5 else title
+                    if not key:
+                        continue
+                        
+                    if key not in unique_deadlines:
+                        unique_deadlines[key] = d
+                    else:
+                        # Eğer aynı görev daha önce eklendiyse ve yeni gelen e-postanın deadline'ı daha yeniyse vs.
+                        # Şimdilik direkt ilk tespit edileni veya son geleni tutabiliriz (ilk olan genelde en güncel maildir çünkü emails array'i tersten geliyor olabilir).
+                        pass
+                        
+                return list(unique_deadlines.values())
+            except Exception as e:
+                print(f"[DEADLINES] JSON parse error: {e}")
+                return None
+        return None
+
+    # --- YOL 1: OpenRouter API (ana yol — kota sorunu yok) ---
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        try:
+            print(f"[DEADLINES] Using OpenRouter for {len(req.emails)} emails...")
+            import httpx
+            resp = httpx.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openrouter_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "http://localhost:8000",
+                    "X-Title": "Ogrenci Rehberi"
+                },
+                json={
+                    "model": "openrouter/auto",
+                    "messages": [{"role": "user", "content": prompt_text}],
+                    "temperature": 0
+                },
+                timeout=30.0
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                print(f"[DEADLINES] OpenRouter response: {content[:500]}")
+                deadlines = _parse_deadlines(content)
+                if deadlines is not None:
+                    print(f"[DEADLINES] Found {len(deadlines)} deadlines via OpenRouter")
+                    return {"deadlines": deadlines}
+                print("[DEADLINES] No deadlines parsed from OpenRouter response")
+                return {"deadlines": []}
+            else:
+                print(f"[DEADLINES] OpenRouter HTTP {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            print(f"[DEADLINES] OpenRouter failed: {e}")
+
+    # --- YOL 2: Gemini Fallback ---
+    if gemini_client:
+        models_to_try = ["gemini-flash-latest", "gemini-2.5-flash"]
+        for model_name in models_to_try:
+            try:
+                print(f"[DEADLINES] Gemini fallback: trying '{model_name}'...")
+                response = gemini_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt_text
+                )
+                response_text = response.text
+                print(f"[DEADLINES] Gemini ({model_name}) response: {response_text[:500]}")
+                deadlines = _parse_deadlines(response_text)
+                if deadlines is not None:
+                    print(f"[DEADLINES] Found {len(deadlines)} deadlines via Gemini {model_name}")
+                    return {"deadlines": deadlines}
+                return {"deadlines": []}
+            except Exception as e:
+                err = str(e)
+                is_quota = "429" in err or "quota" in err.lower() or "RESOURCE_EXHAUSTED" in err
+                print(f"[DEADLINES] Gemini '{model_name}' failed: {'QUOTA' if is_quota else 'ERROR'}")
+                if is_quota:
+                    time.sleep(1)
+                    continue
+                break
+
+    print("[DEADLINES] All methods failed")
+    return {"deadlines": [], "error": "Yapay zeka servisleri şu an kullanılamıyor."}
 
 class ZimbraMessageRequest(BaseModel):
     email: str
