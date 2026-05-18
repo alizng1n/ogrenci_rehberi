@@ -751,6 +751,70 @@ async def zimbra_inbox_endpoint(req: ZimbraInboxRequest):
             raise HTTPException(status_code=401, detail="Oturum süresi doldu, lütfen tekrar giriş yapın.")
         raise HTTPException(status_code=500, detail=str(e))
 
+class EmailExtractRequest(BaseModel):
+    id: str
+    subject: str
+    body: str
+    date: str
+
+class DeadlineExtractRequest(BaseModel):
+    emails: list[EmailExtractRequest]
+
+@app.post("/api/zimbra/extract-deadlines")
+async def extract_deadlines(req: DeadlineExtractRequest):
+    """E-postalardaki tarihleri (deadline) yapay zeka ile analiz eder."""
+    if not gemini_client:
+        return {"deadlines": []}
+    
+    if not req.emails:
+        return {"deadlines": []}
+        
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Prepare text for LLM
+    emails_text = ""
+    for e in req.emails:
+        # Sadece ilk 1000 karakteri al, token tasarrufu
+        clean_body = re.sub(r'<[^>]+>', ' ', e.body[:1500])
+        emails_text += f"ID: {e.id}\nTarih: {e.date}\nKonu: {e.subject}\nİçerik: {clean_body}\n---\n"
+        
+    prompt = f"""
+Şu anki sistem zamanı: {current_time}
+
+Aşağıdaki e-postaları analiz et. Bu e-postalardaki önemli "Son Teslim Tarihi" (deadline), "Sınav Tarihi", "Ödev Teslim" gibi akademik görev tarihlerini tespit et.
+Eğer net bir tarih veya zaman belirtilmişse (örneğin 'Çarşamba 23:59', '20 Mayıs' vb.) e-postanın gönderildiği 'Tarih' bilgisini baz alarak bu tarihin tam ISO 8601 formatını (YYYY-MM-DDTHH:MM:SS) hesapla.
+
+Lütfen sadece aşağıdaki JSON dizisi formatında yanıt ver, hiçbir ekstra metin ekleme:
+[
+  {{
+    "email_id": "ilgili_eposta_id",
+    "title": "Kısa ve öz görev başlığı (örn: Sayısal Görüntü İşleme Ödevi)",
+    "deadline": "YYYY-MM-DDTHH:MM:SS"
+  }}
+]
+
+Eğer hiçbir e-postada teslim tarihi yoksa sadece boş bir dizi dön: []
+
+E-Postalar:
+{emails_text}
+"""
+    try:
+        response = gemini_client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt
+        )
+        
+        response_text = response.text
+        match = re.search(r"\[.*\]", response_text, re.DOTALL)
+        if match:
+            json_str = match.group(0)
+            deadlines = json.loads(json_str)
+            return {"deadlines": deadlines}
+        return {"deadlines": []}
+    except Exception as e:
+        print("Extract deadlines error:", e)
+        return {"deadlines": []}
+
 class ZimbraMessageRequest(BaseModel):
     email: str
     msg_id: str

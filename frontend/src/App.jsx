@@ -4,7 +4,7 @@ import {
   Send, Search, Plus, CheckCircle2, AlertTriangle, 
   FileText, ArrowRight, User, Users, Sun, Moon, Home,
   Upload, Camera, Check, X, FileCheck, Bell, Mail, ExternalLink,
-  Clock, Info, Loader2, ChevronDown, ChevronUp, Inbox, Lock, LogOut, GraduationCap, Megaphone, Eye, EyeOff
+  Clock, Info, Loader2, ChevronDown, ChevronUp, Inbox, Lock, LogOut, GraduationCap, Megaphone, Eye, EyeOff, Hourglass
 } from 'lucide-react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
@@ -47,6 +47,8 @@ function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [emailDetailLoading, setEmailDetailLoading] = useState(false);
+  const [zimbraDeadlines, setZimbraDeadlines] = useState([]);
+  const [deadlinesLoading, setDeadlinesLoading] = useState(false);
 
   const messagesEndRef = useRef(null);
 
@@ -127,7 +129,6 @@ function App() {
     };
     fetchData();
 
-    // Check Zimbra Session
     const checkZimbraSession = async () => {
       const savedEmail = localStorage.getItem('zimbraEmail');
       if (savedEmail) {
@@ -135,6 +136,7 @@ function App() {
           const res = await axios.post('http://localhost:8000/api/zimbra/check-session', { email: savedEmail, password: '' });
           if (res.data.valid) {
             setZimbraLoggedIn(true);
+            fetchZimbraData(savedEmail);
           } else {
             localStorage.removeItem('zimbraEmail');
             setZimbraEmail('');
@@ -146,6 +148,40 @@ function App() {
     };
     checkZimbraSession();
   }, []);
+
+  const fetchZimbraData = async (emailToFetch) => {
+    setZimbraLoading(true);
+    setZimbraError('');
+    try {
+      const inboxRes = await axios.post('http://localhost:8000/api/zimbra/inbox', { email: emailToFetch });
+      setZimbraEmails(inboxRes.data.emails);
+      setZimbraStats(inboxRes.data.stats);
+
+      const academicEmails = inboxRes.data.emails.filter(e => e.category === 'academic');
+      if (academicEmails.length > 0) {
+        setDeadlinesLoading(true);
+        const reqEmails = academicEmails.slice(0, 10).map(e => ({
+          id: e.id,
+          subject: e.subject,
+          body: e.body || e.snippet,
+          date: e.date
+        }));
+        try {
+          const deadlinesRes = await axios.post('http://localhost:8000/api/zimbra/extract-deadlines', { emails: reqEmails });
+          setZimbraDeadlines(deadlinesRes.data.deadlines || []);
+        } catch (e) { console.error("Deadline extraction failed", e); }
+        setDeadlinesLoading(false);
+      } else {
+        setZimbraDeadlines([]);
+      }
+    } catch(err) {
+      setZimbraError(err.response?.data?.detail || 'E-postalar yüklenemedi.');
+      if (err?.response?.status === 401) {
+        setZimbraLoggedIn(false);
+      }
+    }
+    setZimbraLoading(false);
+  };
 
   useEffect(() => {
     if (isDarkMode) {
@@ -418,6 +454,49 @@ function App() {
             }}>{zimbraStats.unread}</span>
           )}
         </button>
+
+        {zimbraLoggedIn && (zimbraDeadlines.length > 0 || deadlinesLoading) && (
+          <div style={{ marginBottom: '32px' }}>
+            <h4 style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '12px', paddingLeft: '12px' }}>
+              Yaklaşan Ödevler
+            </h4>
+            {deadlinesLoading ? (
+              <div style={{ padding: '12px', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Loader2 size={14} className="spinning" /> Analiz ediliyor...
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {zimbraDeadlines.map((task, idx) => {
+                  const deadlineDate = new Date(task.deadline);
+                  const now = new Date();
+                  const diffTime = deadlineDate - now;
+                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                  
+                  let statusColor = '#10b981'; // Green
+                  let statusText = `${diffDays} gün kaldı`;
+                  
+                  if (diffDays === 0) { statusColor = '#f59e0b'; statusText = 'Bugün son!'; }
+                  else if (diffDays < 0) { statusColor = '#ef4444'; statusText = `${Math.abs(diffDays)} gün gecikti`; }
+                  else if (diffDays <= 3) { statusColor = '#f59e0b'; }
+
+                  return (
+                    <div key={idx} onClick={() => { setIsChatMode(false); setActiveTab('emails'); }} style={{
+                      background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '10px 12px',
+                      borderLeft: `3px solid ${statusColor}`, cursor: 'pointer', transition: 'all 0.2s'
+                    }} onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'} onMouseOut={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}>
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {task.title}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: statusColor, fontWeight: '500' }}>
+                        <Hourglass size={12} /> {statusText}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         <div style={{ marginTop: 'auto' }}>
           <button 
@@ -763,15 +842,7 @@ function App() {
               </div>
               {zimbraLoggedIn && (
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn-secondary" onClick={async () => {
-                    setZimbraLoading(true);
-                    try {
-                      const res = await axios.post('http://localhost:8000/api/zimbra/inbox', { email: zimbraEmail });
-                      setZimbraEmails(res.data.emails);
-                      setZimbraStats(res.data.stats);
-                    } catch(e) { setZimbraError('E-postalar yüklenemedi.'); }
-                    setZimbraLoading(false);
-                  }} style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button className="btn-secondary" onClick={() => fetchZimbraData(zimbraEmail)} style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Loader2 size={14} className={zimbraLoading ? 'spinning' : ''} /> Yenile
                   </button>
                   <button className="btn-secondary" onClick={async () => {
@@ -809,13 +880,11 @@ function App() {
                       await axios.post('http://localhost:8000/api/zimbra/login', { email: zimbraEmail, password: zimbraPassword });
                       localStorage.setItem('zimbraEmail', zimbraEmail);
                       setZimbraLoggedIn(true);
-                      const res = await axios.post('http://localhost:8000/api/zimbra/inbox', { email: zimbraEmail });
-                      setZimbraEmails(res.data.emails);
-                      setZimbraStats(res.data.stats);
+                      fetchZimbraData(zimbraEmail);
                     } catch(err) {
                       setZimbraError(err.response?.data?.detail || 'Giriş başarısız. E-posta veya şifrenizi kontrol edin.');
+                      setZimbraLoading(false);
                     }
-                    setZimbraLoading(false);
                   }}>
                     <div style={{ marginBottom: '14px' }}>
                       <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>E-posta Adresi</label>
