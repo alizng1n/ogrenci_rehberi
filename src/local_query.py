@@ -354,6 +354,11 @@ def resolve_obs_query(query, grades, attendance):
         
     q_norm = normalize_turkish(query)
     
+    # Simülasyon/Geçme hesaplama sorularını yapay zeka (LLM) beyin çözmeli
+    is_simulation = any(w in q_norm for w in ["almaliyim", "alirsam", "gecerim", "gecmek", "gecebileyim", "gecebilirim", "lazim", "hesapla", "simule", "kurtarir"])
+    if is_simulation:
+        return None
+        
     # 1. Not/Sınav Sorguları
     is_grades_query = any(w in q_norm for w in ["not", "vize", "final", "ortalama", "harf", "ders notu", "notlar"])
     # 2. Devamsızlık Sorguları
