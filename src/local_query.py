@@ -45,14 +45,15 @@ def load_faq():
 def normalize_turkish(text):
     if not text:
         return ""
+    text = text.replace('İ', 'i').replace('I', 'i').replace('ı', 'i')
     text = text.lower()
-    text = text.replace('ı', 'i')
     text = text.replace('ş', 's')
     text = text.replace('ğ', 'g')
     text = text.replace('ü', 'u')
     text = text.replace('ö', 'o')
     text = text.replace('ç', 'c')
     text = text.replace('â', 'a')
+    text = text.replace('\u0307', '')  # Remove combining dot above
     # Remove punctuation
     text = re.sub(r'[^\w\s]', ' ', text)
     return " ".join(text.split())
