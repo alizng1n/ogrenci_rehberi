@@ -373,10 +373,12 @@ def resolve_obs_query(query, grades, attendance):
             }
             
         answer = "**OBS Sisteminden Alınan Ders Notlarınız:**\n\n"
-        answer += "| Ders Adı | Vize | Final | Ortalama | Harf Notu |\n"
-        answer += "| :--- | :---: | :---: | :---: | :---: |\n"
         for g in grades:
-            answer += f"| {g.get('course_name', '')} | {g.get('vize', '-')} | {g.get('final', '-')} | {g.get('average', '-')} | **{g.get('letter_grade', '-')}** |\n"
+            vize = g.get('vize') or '-'
+            final = g.get('final') or '-'
+            avg = g.get('average') or '-'
+            letter = g.get('letter_grade') or '-'
+            answer += f"* 📘 **{g.get('course_name', '')}:** Vize: `{vize}` | Final: `{final}` | Ortalama: `{avg}` | Harf Notu: **{letter}**\n"
             
         return {
             "answer": answer,
@@ -391,12 +393,12 @@ def resolve_obs_query(query, grades, attendance):
             }
             
         answer = "**OBS Sisteminden Alınan Devamsızlık Durumlarınız:**\n\n"
-        answer += "| Ders Adı | Teorik Devamsızlık | Uygulama Devamsızlık | Durum |\n"
-        answer += "| :--- | :---: | :---: | :---: |\n"
         for a in attendance:
-            status = a.get('status', 'Belirtilmemiş')
-            status_bold = f"**{status}**" if "kaldı" in status.lower() or "sınır" in status.lower() else status
-            answer += f"| {a.get('course_name', '')} | {a.get('teorik_devamsizlik', '-')} | {a.get('uygulama_devamsizlik', '-')} | {status_bold} |\n"
+            teorik = a.get('teorik_devamsizlik') or '-'
+            uyg = a.get('uygulama_devamsizlik') or '-'
+            status = a.get('status') or 'Belirtilmemiş'
+            status_bold = f"**{status}**" if any(w in status.lower() for w in ["kaldı", "sinir", "limit"]) else status
+            answer += f"* 📙 **{a.get('course_name', '')}:** Teorik: `{teorik}` | Uygulama: `{uyg}` | Durum: {status_bold}\n"
             
         return {
             "answer": answer,
