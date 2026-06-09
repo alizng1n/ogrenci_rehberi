@@ -25,7 +25,7 @@ from src.rag_chain import get_rag_chain
 from langchain_core.messages import HumanMessage, AIMessage
 
 from src.database import engine, get_db
-from src.models import Draft, Base
+from src.models import Draft, Base, OBSGrade, OBSAttendance
 
 # Create DB tables
 Base.metadata.create_all(bind=engine)
@@ -166,6 +166,8 @@ class ChatRequest(BaseModel):
     emails: list = None
     deadlines: list = None
     announcements: list = None
+    obs_grades: list = None
+    obs_attendance: list = None
 
 # ═══════════════════════════════════════════════════════
 # Akıllı Semantik Önbellek (Semantic Cache) Sistemi
@@ -406,8 +408,14 @@ async def chat_endpoint(req: ChatRequest):
 
     # 3. Yerel Sorgu Sınıflandırma ve Çözümleme (0 API Cost)
     try:
-        from src.local_query import resolve_personnel_query, resolve_email_query
+        from src.local_query import resolve_personnel_query, resolve_email_query, resolve_obs_query
         
+        # OBS sorgusu çözümü
+        if req.obs_grades or req.obs_attendance:
+            obs_result = resolve_obs_query(req.message, req.obs_grades, req.obs_attendance)
+            if obs_result:
+                return obs_result
+                
         # E-posta sorgusu çözümü (eğer kullanıcı e-postaları gönderilmişse)
         if req.emails:
             email_result = resolve_email_query(req.message, req.emails)
@@ -486,6 +494,22 @@ async def chat_endpoint(req: ChatRequest):
     if any(w in q_lower for w in ["mail", "e-posta", "eposta", "mesaj"]) and req.emails:
         email_lines = [f"Gönderen: {e.get('from_name') or e.get('from_address')}, Konu: {e.get('subject')}, Tarih: {e.get('date')}, Özet: {e.get('snippet','')[:120]}" for e in req.emails[:3]]
         compressed_context_parts.append("Kullanıcının Son E-postaları:\n" + "\n".join(email_lines))
+
+    # OBS Ders Notları (Eğer gönderildiyse)
+    if req.obs_grades:
+        grade_lines = [
+            f"- {g.get('course_code', '')} {g.get('course_name')}: Vize: {g.get('vize', '-')}, Final: {g.get('final', '-')}, Ortalama: {g.get('average', '-')}, Harf: {g.get('letter_grade', '-')}"
+            for g in req.obs_grades
+        ]
+        compressed_context_parts.append("Kullanıcının OBS Ders Notları:\n" + "\n".join(grade_lines))
+        
+    # OBS Devamsızlık Bilgileri (Eğer gönderildiyse)
+    if req.obs_attendance:
+        att_lines = [
+            f"- {a.get('course_name')}: Teorik: {a.get('teorik_devamsizlik', '-')}, Uygulama: {a.get('uygulama_devamsizlik', '-')}, Durum: {a.get('status', '-')}"
+            for a in req.obs_attendance
+        ]
+        compressed_context_parts.append("Kullanıcının OBS Devamsızlık Durumları:\n" + "\n".join(att_lines))
 
     # Doküman takvim verileri (sınav takvimi)
     raw_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "raw")
@@ -715,7 +739,7 @@ async def scan_document(file: UploadFile = File(...)):
             
             print("File uploaded. Generating content from Gemini...")
             response = gemini_client.models.generate_content(
-                model="gemini-flash-latest",
+                model="gemini-2.5-flash",
                 contents=[file_obj, prompt]
             )
             
@@ -1349,4 +1373,137 @@ async def zimbra_logout_endpoint(req: ZimbraLoginRequest):
     if req.email in _zimbra_sessions:
         del _zimbra_sessions[req.email]
     return {"success": True}
+
+from src.obs_client import OBSLoginSession
+
+ACTIVE_OBS_SESSIONS: dict[str, OBSLoginSession] = {}
+
+class ObsStartSessionRequest(BaseModel):
+    username: str = ""
+
+class ObsCompleteLoginRequest(BaseModel):
+    session_id: str
+    username: str
+    password: str
+    captcha_code: str
+
+@app.post("/api/obs/start-session")
+async def obs_start_session_endpoint(req: ObsStartSessionRequest = None):
+    """OBS oturumunu başlatır, tarayıcıyı açar ve CAPTCHA görselini base64 formatında döner."""
+    # 5 dakikadan eski oturumları temizle (bellek sızıntısını önlemek için)
+    now = time.time()
+    expired = [sid for sid, s in ACTIVE_OBS_SESSIONS.items() if now - s.created_at > 300]
+    for sid in expired:
+        s = ACTIVE_OBS_SESSIONS.pop(sid, None)
+        if s:
+            s.close()
+            
+    try:
+        session = OBSLoginSession()
+        captcha_base64 = session.start()
+        ACTIVE_OBS_SESSIONS[session.session_id] = session
+        return {
+            "success": True,
+            "session_id": session.session_id,
+            "captcha_base64": captcha_base64
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Oturum başlatılamadı veya güvenlik kodu alınamadı: {str(e)}")
+
+@app.post("/api/obs/complete-login")
+async def obs_complete_login_endpoint(req: ObsCompleteLoginRequest, db: Session = Depends(get_db)):
+    """Açık olan oturumda şifre ve güvenlik koduyla giriş yapıp verileri çeker."""
+    session = ACTIVE_OBS_SESSIONS.pop(req.session_id, None)
+    if not session:
+        raise HTTPException(status_code=400, detail="Geçersiz veya süresi dolmuş oturum. Lütfen sayfayı yenileyip tekrar deneyin.")
+        
+    try:
+        res = session.login_and_fetch(req.username, req.password, req.captcha_code)
+        
+        grades_data = res.get("grades", [])
+        attendance_data = res.get("attendance", [])
+        
+        # Eski verileri temizle
+        db.query(OBSGrade).filter(OBSGrade.student_id == req.username).delete()
+        db.query(OBSAttendance).filter(OBSAttendance.student_id == req.username).delete()
+        
+        # Yeni verileri kaydet
+        for g in grades_data:
+            db_grade = OBSGrade(
+                course_code=g.get("course_code"),
+                course_name=g.get("course_name"),
+                vize=g.get("vize"),
+                final=g.get("final"),
+                average=g.get("average"),
+                letter_grade=g.get("letter_grade"),
+                student_id=req.username
+            )
+            db.add(db_grade)
+            
+        for a in attendance_data:
+            db_att = OBSAttendance(
+                course_name=a.get("course_name"),
+                teorik_devamsizlik=a.get("teorik_devamsizlik"),
+                uygulama_devamsizlik=a.get("uygulama_devamsizlik"),
+                status=a.get("status"),
+                student_id=req.username
+            )
+            db.add(db_att)
+            
+        db.commit()
+        
+        return {
+            "success": True, 
+            "grades": grades_data, 
+            "attendance": attendance_data
+        }
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"OBS hatası: {str(e)}")
+
+class ObsDataRequest(BaseModel):
+    student_id: str
+
+@app.post("/api/obs/data")
+async def obs_data_endpoint(req: ObsDataRequest, db: Session = Depends(get_db)):
+    """Veritabanında kayıtlı olan not ve devamsızlık verilerini döner."""
+    try:
+        grades = db.query(OBSGrade).filter(OBSGrade.student_id == req.student_id).all()
+        attendance = db.query(OBSAttendance).filter(OBSAttendance.student_id == req.student_id).all()
+        
+        return {
+            "grades": [
+                {
+                    "course_code": g.course_code,
+                    "course_name": g.course_name,
+                    "vize": g.vize,
+                    "final": g.final,
+                    "average": g.average,
+                    "letter_grade": g.letter_grade
+                } for g in grades
+            ],
+            "attendance": [
+                {
+                    "course_name": a.course_name,
+                    "teorik_devamsizlik": a.teorik_devamsizlik,
+                    "uygulama_devamsizlik": a.uygulama_devamsizlik,
+                    "status": a.status
+                } for a in attendance
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/obs/logout")
+async def obs_logout_endpoint(req: ObsDataRequest, db: Session = Depends(get_db)):
+    """Veritabanındaki öğrenci OBS verilerini temizler ve oturumu kapatır."""
+    try:
+        db.query(OBSGrade).filter(OBSGrade.student_id == req.student_id).delete()
+        db.query(OBSAttendance).filter(OBSAttendance.student_id == req.student_id).delete()
+        db.commit()
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 

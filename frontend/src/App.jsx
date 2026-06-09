@@ -60,6 +60,25 @@ function App() {
     try { return JSON.parse(localStorage.getItem('ubomDeadlines')) || []; } catch { return []; }
   });
 
+  // OBS State
+  const [obsUsername, setObsUsername] = useState(() => localStorage.getItem('obsUsername') || '');
+  const [obsPassword, setObsPassword] = useState('');
+  const [obsLoggedIn, setObsLoggedIn] = useState(() => !!localStorage.getItem('obsUsername'));
+  const [obsLoading, setObsLoading] = useState(false);
+  const [obsError, setObsError] = useState('');
+  const [obsGrades, setObsGrades] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('obsGrades')) || []; } catch { return []; }
+  });
+  const [obsAttendance, setObsAttendance] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('obsAttendance')) || []; } catch { return []; }
+  });
+  const [obsSessionId, setObsSessionId] = useState('');
+  const [obsCaptchaBase64, setObsCaptchaBase64] = useState('');
+  const [obsCaptchaCode, setObsCaptchaCode] = useState('');
+  const [obsLoginStage, setObsLoginStage] = useState(1); // 1: username, 2: password & captcha
+  const [isGradesExpanded, setIsGradesExpanded] = useState(false);
+  const [isAttendanceExpanded, setIsAttendanceExpanded] = useState(false);
+
   const messagesListRef = useRef(null);
 
   // Dilekçe Modal State
@@ -181,6 +200,11 @@ function App() {
       // But fetchUbomData is defined below. Let's just do a direct axios call here to avoid dependency issues.
       fetchUbomData(token);
     }
+
+    const savedObsUser = localStorage.getItem('obsUsername');
+    if (savedObsUser) {
+      fetchObsData(savedObsUser);
+    }
   }, []);
 
   const fetchZimbraData = async (emailToFetch) => {
@@ -246,6 +270,114 @@ function App() {
     localStorage.removeItem('ubomToken');
     localStorage.removeItem('ubomDeadlines');
   };
+
+  const fetchObsData = async (username) => {
+    setObsLoading(true);
+    setObsError('');
+    try {
+      const res = await axios.post('http://localhost:8000/api/obs/data', { student_id: username });
+      setObsGrades(res.data.grades || []);
+      setObsAttendance(res.data.attendance || []);
+      localStorage.setItem('obsGrades', JSON.stringify(res.data.grades || []));
+      localStorage.setItem('obsAttendance', JSON.stringify(res.data.attendance || []));
+    } catch(err) {
+      setObsError(err.response?.data?.detail || 'OBS verileri yüklenemedi.');
+    } finally {
+      setObsLoading(false);
+    }
+  };
+
+  const handleRefreshCaptcha = async () => {
+    setObsLoading(true);
+    setObsError('');
+    setObsCaptchaCode('');
+    try {
+      const res = await axios.post('http://localhost:8000/api/obs/start-session', {});
+      if (res.data.success) {
+        setObsSessionId(res.data.session_id);
+        setObsCaptchaBase64(res.data.captcha_base64);
+      }
+    } catch (err) {
+      setObsError(err.response?.data?.detail || 'Güvenlik kodu yenilenemedi.');
+    } finally {
+      setObsLoading(false);
+    }
+  };
+
+  const handleObsCompleteLogin = async (e) => {
+    if (e) e.preventDefault();
+    setObsLoading(true);
+    setObsError('');
+    try {
+      const res = await axios.post('http://localhost:8000/api/obs/complete-login', {
+        session_id: obsSessionId,
+        username: obsUsername,
+        password: obsPassword,
+        captcha_code: obsCaptchaCode
+      });
+      if (res.data.success) {
+        setObsLoggedIn(true);
+        localStorage.setItem('obsUsername', obsUsername);
+        setObsGrades(res.data.grades || []);
+        setObsAttendance(res.data.attendance || []);
+        localStorage.setItem('obsGrades', JSON.stringify(res.data.grades || []));
+        localStorage.setItem('obsAttendance', JSON.stringify(res.data.attendance || []));
+        setObsPassword('');
+        setObsCaptchaCode('');
+        setObsSessionId('');
+        setObsCaptchaBase64('');
+      }
+    } catch (err) {
+      setObsError(err.response?.data?.detail || 'Giriş başarısız. Şifrenizi ve güvenlik kodunu kontrol edip tekrar deneyin.');
+      setObsCaptchaCode('');
+      setObsPassword('');
+      // Refresh CAPTCHA automatically
+      setObsSessionId('');
+      setObsCaptchaBase64('');
+    } finally {
+      setObsLoading(false);
+    }
+  };
+
+  const handleObsLogout = async () => {
+    setObsLoading(true);
+    try {
+      await axios.post('http://localhost:8000/api/obs/logout', { student_id: obsUsername });
+    } catch(e) {}
+    setObsLoggedIn(false);
+    setObsGrades([]);
+    setObsAttendance([]);
+    localStorage.removeItem('obsUsername');
+    localStorage.removeItem('obsGrades');
+    localStorage.removeItem('obsAttendance');
+    setObsUsername('');
+    setObsPassword('');
+    setObsCaptchaCode('');
+    setObsSessionId('');
+    setObsCaptchaBase64('');
+    setObsLoading(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'obs' && !obsLoggedIn && !obsSessionId && !obsLoading) {
+      const startSession = async () => {
+        setObsLoading(true);
+        setObsError('');
+        try {
+          const res = await axios.post('http://localhost:8000/api/obs/start-session', {});
+          if (res.data.success) {
+            setObsSessionId(res.data.session_id);
+            setObsCaptchaBase64(res.data.captcha_base64);
+          }
+        } catch (err) {
+          setObsError(err.response?.data?.detail || 'Güvenlik kodu yüklenemedi. Lütfen sayfayı yenileyin.');
+        } finally {
+          setObsLoading(false);
+        }
+      };
+      startSession();
+    }
+  }, [activeTab, obsLoggedIn, obsSessionId]);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -323,11 +455,13 @@ function App() {
       const response = await axios.post('http://localhost:8000/api/chat', {
         message: textToSend,
         history: messages,
-        context: `Aktif Sayfa: ${activeTab === 'dashboard' ? 'Ana Sayfa (Dilekçe Formu)' : activeTab === 'directory' ? 'Akademik Kadro Rehberi' : 'Gelen E-postalar'}\n`,
+        context: `Aktif Sayfa: ${activeTab === 'dashboard' ? 'Ana Sayfa (Dilekçe Formu)' : activeTab === 'directory' ? 'Akademik Kadro Rehberi' : activeTab === 'emails' ? 'Gelen E-postalar' : 'OBS Rehberi'}\n`,
         zimbra_email: zimbraEmail,
         emails: zimbraEmails,
         deadlines: ubomDeadlines,
-        announcements: announcements
+        announcements: announcements,
+        obs_grades: obsGrades,
+        obs_attendance: obsAttendance
       });
 
       setMessages([...newMessages, { 
@@ -567,7 +701,7 @@ function App() {
             cursor: 'pointer',
             fontWeight: '500',
             fontSize: '14px',
-            marginBottom: '32px',
+            marginBottom: '12px',
             transition: 'all 0.2s',
             position: 'relative'
           }} 
@@ -582,6 +716,30 @@ function App() {
               textAlign: 'center'
             }}>{zimbraStats.unread}</span>
           )}
+        </button>
+
+        {/* OBS Rehberi Button */}
+        <button 
+          className="nav-item" 
+          style={{ 
+            width: '100%', 
+            border: '1px solid var(--border-color)', 
+            background: !isChatMode && activeTab === 'obs' ? 'rgba(2, 132, 199, 0.1)' : 'transparent',
+            color: !isChatMode && activeTab === 'obs' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '12px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: '500',
+            fontSize: '14px',
+            marginBottom: '32px',
+            transition: 'all 0.2s'
+          }} 
+          onClick={() => { setIsChatMode(false); setActiveTab('obs'); }}
+        >
+          <GraduationCap size={18} /> OBS Rehberi
         </button>
 
         <div style={{ marginBottom: '32px' }}>
@@ -1311,6 +1469,300 @@ function App() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+          </div>
+        ) : activeTab === 'obs' ? (
+          <div className="content-wrapper" style={{ paddingTop: '48px' }}>
+            <div className="page-header">
+              <div>
+                <h2>OBS Rehberi</h2>
+                <p>İSTE Öğrenci Bilgi Sistemi Notlar ve Devamsızlık Durumu</p>
+              </div>
+              {obsLoggedIn && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn-secondary" onClick={() => fetchObsData(obsUsername)} style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }} disabled={obsLoading}>
+                    <Loader2 size={14} className={obsLoading ? 'spinning' : ''} /> Yenile
+                  </button>
+                  <button className="btn-secondary" onClick={handleObsLogout} style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444' }} disabled={obsLoading}>
+                    <LogOut size={14} /> Oturumu Kapat
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {!obsLoggedIn ? (
+              <div style={{ maxWidth: '450px', margin: '60px auto', boxSizing: 'border-box' }}>
+                <div className="dashboard-card" style={{ padding: '32px' }}>
+                  <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+                    <GraduationCap size={64} style={{ color: 'var(--accent-blue)', margin: '0 auto 16px', display: 'block' }} />
+                    <h3 style={{ margin: '0 0 6px', fontSize: '18px', color: 'var(--text-primary)' }}>OBS Öğrenci Girişi</h3>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>İSTE Öğrenci Bilgi Sistemi (ÖBS) bilgilerinizi girin</p>
+                  </div>
+
+                  {obsError && (
+                    <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#ef4444' }}>
+                      {obsError}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleObsCompleteLogin}>
+                    <div style={{ marginBottom: '14px' }}>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>Öğrenci Numarası</label>
+                      <input 
+                        type="text" 
+                        placeholder="Örn: 220101011" 
+                        value={obsUsername} 
+                        onChange={(e) => setObsUsername(e.target.value)} 
+                        required
+                        style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'var(--bg-sidebar)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} 
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: '14px' }}>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>OBS Şifresi</label>
+                      <input 
+                        type="password" 
+                        placeholder="Şifreniz" 
+                        value={obsPassword} 
+                        onChange={(e) => setObsPassword(e.target.value)} 
+                        required
+                        style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'var(--bg-sidebar)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} 
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: '24px' }}>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px' }}>Güvenlik Kodu (Sayıların Toplamı)</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>
+                          {obsCaptchaBase64 ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-sidebar)', padding: '6px 14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                              <img 
+                                src={`data:image/png;base64,${obsCaptchaBase64}`} 
+                                alt="OBS Captcha" 
+                                style={{ height: '36px', borderRadius: '6px' }} 
+                              />
+                              <button 
+                                type="button" 
+                                onClick={handleRefreshCaptcha} 
+                                title="Kodu Yenile"
+                                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', borderRadius: '6px' }}
+                                disabled={obsLoading}
+                              >
+                                <Loader2 size={16} className={obsLoading ? 'spinning' : ''} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)', padding: '8px 0' }}>
+                              <Loader2 size={16} className="spinning" />
+                              <span>Güvenlik kodu yükleniyor...</span>
+                            </div>
+                          )}
+                        </div>
+                        <input 
+                          type="text" 
+                          placeholder="Toplam Sonucunu Buraya Yazın" 
+                          value={obsCaptchaCode} 
+                          onChange={(e) => setObsCaptchaCode(e.target.value)} 
+                          required
+                          style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'var(--bg-sidebar)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', textAlign: 'center', fontWeight: 'bold' }} 
+                        />
+                      </div>
+                    </div>
+
+                    <button 
+                      type="submit" 
+                      className="btn-primary" 
+                      disabled={obsLoading || !obsSessionId}
+                      style={{ width: '100%', padding: '12px', borderRadius: '10px', fontSize: '14px', fontWeight: '600', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+                    >
+                      {obsLoading ? (
+                        <>
+                          <Loader2 size={16} className="spinning" />
+                          <span>Bağlanılıyor (OBS Verileri Çekiliyor)...</span>
+                        </>
+                      ) : (
+                        'OBS Sistemine Bağlan'
+                      )}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ) : obsLoading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px', color: 'var(--text-secondary)' }}>
+                <Loader2 size={32} className="spinning" style={{ color: 'var(--accent-blue)', marginBottom: '16px' }} />
+                <p>OBS verileri yükleniyor, lütfen bekleyin...</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                
+                {/* Ders Notları Kartı */}
+                <div className="dashboard-card" style={{ padding: '20px 24px', overflow: 'hidden' }}>
+                  <div 
+                    onClick={() => setIsGradesExpanded(!isGradesExpanded)}
+                    onMouseOver={e => { e.currentTarget.style.backgroundColor = 'var(--bg-sidebar)'; }}
+                    onMouseOut={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'space-between', 
+                      cursor: 'pointer', 
+                      userSelect: 'none',
+                      padding: '10px 14px',
+                      margin: '-10px -14px',
+                      borderRadius: '8px',
+                      transition: 'all 0.2s ease-in-out'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <GraduationCap size={20} style={{ color: 'var(--accent-blue)' }} />
+                      <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Dönem Ders Notları</h3>
+                      {obsGrades.length > 0 && (
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', background: 'var(--bg-sidebar)', padding: '2px 8px', borderRadius: '12px', fontWeight: '500' }}>
+                          {obsGrades.length} Ders
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      {isGradesExpanded ? <ChevronUp size={20} style={{ color: 'var(--text-secondary)' }} /> : <ChevronDown size={20} style={{ color: 'var(--text-secondary)' }} />}
+                    </div>
+                  </div>
+                  
+                  {isGradesExpanded && (
+                    <div style={{ marginTop: '18px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                      {obsGrades.length === 0 ? (
+                        <p style={{ fontSize: '14px', color: 'var(--text-secondary)', padding: '10px 0', margin: 0 }}>Kayıtlı not bulunamadı.</p>
+                      ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', textAlign: 'left' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '2px solid var(--border-color)', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                                <th style={{ padding: '10px 12px' }}>Ders Kodu</th>
+                                <th style={{ padding: '10px 12px' }}>Ders Adı</th>
+                                <th style={{ padding: '10px 12px', textAlign: 'center' }}>Vize</th>
+                                <th style={{ padding: '10px 12px', textAlign: 'center' }}>Final</th>
+                                <th style={{ padding: '10px 12px', textAlign: 'center' }}>Ortalama</th>
+                                <th style={{ padding: '10px 12px', textAlign: 'center' }}>Harf Notu</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {obsGrades.map((g, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-primary)' }} onMouseOver={e => e.currentTarget.style.backgroundColor = 'var(--bg-sidebar)'} onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                                  <td style={{ padding: '12px 12px', fontFamily: 'monospace', fontSize: '13px' }}>{g.course_code || '-'}</td>
+                                  <td style={{ padding: '12px 12px', fontWeight: '500' }}>{g.course_name}</td>
+                                  <td style={{ padding: '12px 12px', textAlign: 'center' }}>{g.vize || '-'}</td>
+                                  <td style={{ padding: '12px 12px', textAlign: 'center' }}>{g.final || '-'}</td>
+                                  <td style={{ padding: '12px 12px', textAlign: 'center', fontWeight: '600' }}>{g.average || '-'}</td>
+                                  <td style={{ padding: '12px 12px', textAlign: 'center' }}>
+                                    {g.letter_grade ? (
+                                      <span style={{
+                                        background: ['AA', 'BA', 'BB', 'CB', 'CC', 'Geçti'].includes(g.letter_grade) 
+                                          ? 'rgba(16,185,129,0.12)' 
+                                          : ['FF', 'FD', 'Kaldı', 'DZ', 'GR'].includes(g.letter_grade) 
+                                            ? 'rgba(239,68,68,0.12)' 
+                                            : g.letter_grade === '--' || g.letter_grade === '-'
+                                              ? 'rgba(156,163,175,0.12)'
+                                              : 'rgba(245,158,11,0.12)',
+                                        color: ['AA', 'BA', 'BB', 'CB', 'CC', 'Geçti'].includes(g.letter_grade) 
+                                          ? '#10b981' 
+                                          : ['FF', 'FD', 'Kaldı', 'DZ', 'GR'].includes(g.letter_grade) 
+                                            ? '#ef4444' 
+                                            : g.letter_grade === '--' || g.letter_grade === '-'
+                                              ? '#9ca3af'
+                                              : '#f59e0b',
+                                        padding: '2px 8px', borderRadius: '6px', fontWeight: '700', fontSize: '12px'
+                                      }}>
+                                        {g.letter_grade}
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: 'var(--text-secondary)' }}>-</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Devamsızlık Durumu Kartı */}
+                <div className="dashboard-card" style={{ padding: '20px 24px', overflow: 'hidden' }}>
+                  <div 
+                    onClick={() => setIsAttendanceExpanded(!isAttendanceExpanded)}
+                    onMouseOver={e => { e.currentTarget.style.backgroundColor = 'var(--bg-sidebar)'; }}
+                    onMouseOut={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'space-between', 
+                      cursor: 'pointer', 
+                      userSelect: 'none',
+                      padding: '10px 14px',
+                      margin: '-10px -14px',
+                      borderRadius: '8px',
+                      transition: 'all 0.2s ease-in-out'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Hourglass size={20} style={{ color: '#f59e0b' }} />
+                      <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Devamsızlık Takip Durumu</h3>
+                      {obsAttendance.length > 0 && (
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', background: 'var(--bg-sidebar)', padding: '2px 8px', borderRadius: '12px', fontWeight: '500' }}>
+                          {obsAttendance.length} Ders
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      {isAttendanceExpanded ? <ChevronUp size={20} style={{ color: 'var(--text-secondary)' }} /> : <ChevronDown size={20} style={{ color: 'var(--text-secondary)' }} />}
+                    </div>
+                  </div>
+                  
+                  {isAttendanceExpanded && (
+                    <div style={{ marginTop: '18px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                      {obsAttendance.length === 0 ? (
+                        <p style={{ fontSize: '14px', color: 'var(--text-secondary)', padding: '10px 0', margin: 0 }}>Kayıtlı devamsızlık bilgisi bulunamadı.</p>
+                      ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', textAlign: 'left' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '2px solid var(--border-color)', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                                <th style={{ padding: '10px 12px' }}>Ders Adı</th>
+                                <th style={{ padding: '10px 12px', textAlign: 'center' }}>Teorik Devamsızlık</th>
+                                <th style={{ padding: '10px 12px', textAlign: 'center' }}>Uygulama Devamsızlık</th>
+                                <th style={{ padding: '10px 12px', textAlign: 'center' }}>Durum</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {obsAttendance.map((a, idx) => {
+                                const isDanger = a.status.toLowerCase().includes('kaldı') || a.status.toLowerCase().includes('limit');
+                                return (
+                                  <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-primary)' }} onMouseOver={e => e.currentTarget.style.backgroundColor = 'var(--bg-sidebar)'} onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                                    <td style={{ padding: '12px 12px', fontWeight: '500' }}>{a.course_name}</td>
+                                    <td style={{ padding: '12px 12px', textAlign: 'center' }}>{a.teorik_devamsizlik}</td>
+                                    <td style={{ padding: '12px 12px', textAlign: 'center' }}>{a.uygulama_devamsizlik}</td>
+                                    <td style={{ padding: '12px 12px', textAlign: 'center' }}>
+                                      <span style={{
+                                        background: isDanger ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
+                                        color: isDanger ? '#ef4444' : '#10b981',
+                                        padding: '2px 8px', borderRadius: '6px', fontWeight: '700', fontSize: '12px'
+                                      }}>
+                                        {a.status}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
               </div>
             )}
           </div>

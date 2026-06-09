@@ -343,3 +343,58 @@ def extract_relevant_personnel_context(query):
         context += f"- Görevler: {tasks}\n"
         
     return context
+
+def resolve_obs_query(query, grades, attendance):
+    """
+    Kullanıcının OBS notları ve devamsızlık durumları hakkındaki sorularını 
+    yerel veri üzerinden anında yanıtlar.
+    """
+    if not grades and not attendance:
+        return None
+        
+    q_norm = normalize_turkish(query)
+    
+    # 1. Not/Sınav Sorguları
+    is_grades_query = any(w in q_norm for w in ["not", "vize", "final", "ortalama", "harf", "ders notu", "notlar"])
+    # 2. Devamsızlık Sorguları
+    is_attendance_query = any(w in q_norm for w in ["devam", "devamsizlik", "devamsizligim", "kac gun", "kac saat", "sinir"])
+    
+    if is_grades_query:
+        if not grades:
+            return {
+                "answer": "OBS sisteminden çekilmiş herhangi bir ders notu kaydınız bulunmamaktadır.",
+                "sources": [{"source": "İSTE OBS Entegrasyonu", "page": "-", "content": "Ders notu araması"}]
+            }
+            
+        answer = "**OBS Sisteminden Alınan Ders Notlarınız:**\n\n"
+        answer += "| Ders Adı | Vize | Final | Ortalama | Harf Notu |\n"
+        answer += "| :--- | :---: | :---: | :---: | :---: |\n"
+        for g in grades:
+            answer += f"| {g.get('course_name', '')} | {g.get('vize', '-')} | {g.get('final', '-')} | {g.get('average', '-')} | **{g.get('letter_grade', '-')}** |\n"
+            
+        return {
+            "answer": answer,
+            "sources": [{"source": "İSTE OBS Entegrasyonu", "page": "-", "content": "Güncel Not Durumu"}]
+        }
+        
+    elif is_attendance_query:
+        if not attendance:
+            return {
+                "answer": "OBS sisteminden çekilmiş herhangi bir devamsızlık kaydınız bulunmamaktadır.",
+                "sources": [{"source": "İSTE OBS Entegrasyonu", "page": "-", "content": "Devamsızlık araması"}]
+            }
+            
+        answer = "**OBS Sisteminden Alınan Devamsızlık Durumlarınız:**\n\n"
+        answer += "| Ders Adı | Teorik Devamsızlık | Uygulama Devamsızlık | Durum |\n"
+        answer += "| :--- | :---: | :---: | :---: |\n"
+        for a in attendance:
+            status = a.get('status', 'Belirtilmemiş')
+            status_bold = f"**{status}**" if "kaldı" in status.lower() or "sınır" in status.lower() else status
+            answer += f"| {a.get('course_name', '')} | {a.get('teorik_devamsizlik', '-')} | {a.get('uygulama_devamsizlik', '-')} | {status_bold} |\n"
+            
+        return {
+            "answer": answer,
+            "sources": [{"source": "İSTE OBS Entegrasyonu", "page": "-", "content": "Güncel Devamsızlık Durumu"}]
+        }
+        
+    return None

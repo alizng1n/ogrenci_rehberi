@@ -31,3 +31,7 @@ Thumbs.db
 # IDEs
 .vscode/
 .idea/
+
+# Debug HTMLs
+data/*.html
+
