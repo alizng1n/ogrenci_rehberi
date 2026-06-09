@@ -455,7 +455,7 @@ function App() {
       const response = await axios.post('http://localhost:8000/api/chat', {
         message: textToSend,
         history: messages,
-        context: `Aktif Sayfa: ${activeTab === 'dashboard' ? 'Ana Sayfa (Dilekçe Formu)' : activeTab === 'directory' ? 'Akademik Kadro Rehberi' : activeTab === 'emails' ? 'Gelen E-postalar' : 'OBS Rehberi'}\n`,
+        context: `Aktif Sayfa: ${activeTab === 'dashboard' ? 'Ana Sayfa (Dilekçe Formu)' : activeTab === 'directory' ? 'Akademik Kadro Rehberi' : activeTab === 'emails' ? 'Gelen E-postalar' : 'OBS / Notlarım'}\n`,
         zimbra_email: zimbraEmail,
         emails: zimbraEmails,
         deadlines: ubomDeadlines,
@@ -739,7 +739,7 @@ function App() {
           }} 
           onClick={() => { setIsChatMode(false); setActiveTab('obs'); }}
         >
-          <GraduationCap size={18} /> OBS Rehberi
+          <GraduationCap size={18} /> OBS / Notlarım
         </button>
 
         <div style={{ marginBottom: '32px' }}>
@@ -791,60 +791,7 @@ function App() {
           )}
         </div>
 
-        {apiKeyStatus.is_available && (
-          <div style={{ 
-            background: 'rgba(2, 132, 199, 0.05)', 
-            border: '1px solid var(--border-color)',
-            borderRadius: '12px', 
-            padding: '12px', 
-            marginBottom: '16px',
-            fontSize: '12px'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: '500' }}>
-              <span>API Harcaması</span>
-              <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>
-                ${apiKeyStatus.usage.toFixed(4)}
-              </span>
-            </div>
-            
-            {apiKeyStatus.limit ? (
-              <>
-                <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden', marginBottom: '8px' }}>
-                  <div style={{ 
-                    width: `${Math.min((apiKeyStatus.usage / apiKeyStatus.limit) * 100, 100)}%`, 
-                    height: '100%', 
-                    background: (apiKeyStatus.usage / apiKeyStatus.limit) > 0.8 ? '#ef4444' : '#0284c7',
-                    transition: 'width 0.3s ease'
-                  }} />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                  <span>Bugün: ${apiKeyStatus.usage_daily.toFixed(4)}</span>
-                  <span>Limit: ${apiKeyStatus.limit.toFixed(2)}</span>
-                </div>
-                <div style={{ 
-                  textAlign: 'center', 
-                  fontSize: '10px', 
-                  fontWeight: '600', 
-                  color: (apiKeyStatus.limit - apiKeyStatus.usage) <= 0.85 ? '#ef4444' : '#10b981',
-                  marginTop: '6px',
-                  paddingTop: '6px',
-                  borderTop: '1px solid rgba(255,255,255,0.05)'
-                }}>
-                  {(apiKeyStatus.limit - apiKeyStatus.usage) <= 0 ? (
-                    <span>⚠️ Limit Aşıldı!</span>
-                  ) : (
-                    <span>Kalan Kullanım: ${(apiKeyStatus.limit - apiKeyStatus.usage).toFixed(4)}</span>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Bugün: ${apiKeyStatus.usage_daily.toFixed(4)}</span>
-                <span>Limitsiz</span>
-              </div>
-            )}
-          </div>
-        )}
+
 
         <div style={{ marginTop: 'auto' }}>
           <button 
@@ -1476,7 +1423,7 @@ function App() {
           <div className="content-wrapper" style={{ paddingTop: '48px' }}>
             <div className="page-header">
               <div>
-                <h2>OBS Rehberi</h2>
+                <h2>OBS / Notlarım</h2>
                 <p>İSTE Öğrenci Bilgi Sistemi Notlar ve Devamsızlık Durumu</p>
               </div>
               {obsLoggedIn && (
@@ -1497,7 +1444,7 @@ function App() {
                   <div style={{ textAlign: 'center', marginBottom: '28px' }}>
                     <GraduationCap size={64} style={{ color: 'var(--accent-blue)', margin: '0 auto 16px', display: 'block' }} />
                     <h3 style={{ margin: '0 0 6px', fontSize: '18px', color: 'var(--text-primary)' }}>OBS Öğrenci Girişi</h3>
-                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>İSTE Öğrenci Bilgi Sistemi (ÖBS) bilgilerinizi girin</p>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>İSTE Öğrenci Bilgi Sistemi (OBS) bilgilerinizi girin</p>
                   </div>
 
                   {obsError && (
